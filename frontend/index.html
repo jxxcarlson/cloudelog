@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>cloudelog</title>
+    <style>
+      body { font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 2rem; max-width: 800px; margin-inline: auto; }
+      h1, h2 { margin-top: 0; }
+      .flash { padding: 0.75rem 1rem; border-radius: 4px; background: #fee; color: #900; margin-bottom: 1rem; }
+      .row { display: flex; gap: 1rem; align-items: baseline; padding: 0.5rem 0; border-bottom: 1px solid #eee; }
+      .row .date { width: 7rem; color: #666; }
+      .row .qty { width: 4rem; font-variant-numeric: tabular-nums; }
+      .row .desc { flex: 1; color: #333; }
+      .row .ctrls { display: flex; gap: 0.5rem; }
+      .stats { display: flex; gap: 1.5rem; margin: 1rem 0; font-size: 0.95rem; }
+      .stats div { background: #f5f5f5; padding: 0.5rem 0.75rem; border-radius: 4px; }
+      input, select, button { padding: 0.4rem 0.6rem; font-size: 1rem; }
+      button { cursor: pointer; }
+      .primary { background: #345; color: white; border: none; border-radius: 4px; }
+      form { display: flex; gap: 0.5rem; align-items: baseline; margin: 1rem 0; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="elm.js"></script>
+    <script>
+      Elm.Main.init({ node: document.getElementById("app") });
+    </script>
+  </body>
+</html>
