@@ -1,6 +1,4 @@
 module Main where
 
-import Lib (greet)
-
 main :: IO ()
-main = putStrLn greet
+main = putStrLn "cloudelog backend (stub — App.hs wiring pending)"
