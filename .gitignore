@@ -1,0 +1,32 @@
+# Haskell / Stack
+.stack-work/
+dist/
+dist-newstyle/
+*.hi
+*.o
+*.chi
+*.chs.h
+*.dyn_hi
+*.dyn_o
+
+# Elm
+frontend/elm-stuff/
+frontend/elm.js
+
+# Env
+.env
+.env.local
+
+# OS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+
+# DB dumps
+*.sql.dump
