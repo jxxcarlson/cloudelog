@@ -20,6 +20,7 @@ dependencies:
   - http-types
   - jose
   - mtl
+  - regex-posix
   - servant
   - servant-auth
   - servant-auth-server
