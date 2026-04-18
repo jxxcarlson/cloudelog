@@ -1,0 +1,75 @@
+name:                cloudelog-backend
+version:             0.1.0.0
+synopsis:            Daily quantity log backend
+license:             BSD-3-Clause
+author:              James Carlson
+maintainer:          jxxcarlson@gmail.com
+copyright:           2026 James Carlson
+build-type:          Simple
+
+dependencies:
+  - base >= 4.7 && < 5
+  - aeson
+  - bcrypt
+  - bytestring
+  - containers
+  - contravariant
+  - hasql
+  - hasql-pool >= 0.9 && < 1
+  - hasql-transaction
+  - http-types
+  - jose
+  - mtl
+  - servant
+  - servant-auth
+  - servant-auth-server
+  - servant-server
+  - text
+  - time
+  - transformers
+  - uuid
+  - vector
+  - wai
+  - wai-cors
+  - warp
+
+default-extensions:
+  - OverloadedStrings
+  - DataKinds
+  - TypeOperators
+  - DeriveGeneric
+  - RecordWildCards
+  - NamedFieldPuns
+  - ScopedTypeVariables
+  - LambdaCase
+
+ghc-options:
+  - -Wall
+  - -Wno-unused-do-bind
+  - -Wno-name-shadowing
+
+library:
+  source-dirs: src
+
+executables:
+  cloudelog-backend:
+    main:             Main.hs
+    source-dirs:      app
+    dependencies:
+      - cloudelog-backend
+    ghc-options:
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
+
+tests:
+  cloudelog-backend-test:
+    main:             Spec.hs
+    source-dirs:      test
+    dependencies:
+      - cloudelog-backend
+      - hspec
+    ghc-options:
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N

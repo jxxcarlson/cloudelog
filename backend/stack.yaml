@@ -1,0 +1,10 @@
+resolver: lts-22.43
+
+packages:
+  - .
+
+# macOS Apple Silicon: make libpq discoverable
+extra-include-dirs:
+  - /opt/homebrew/opt/libpq/include
+extra-lib-dirs:
+  - /opt/homebrew/opt/libpq/lib
