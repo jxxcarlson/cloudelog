@@ -1,4 +1,7 @@
 module Main where
 
+import App    (startApp)
+import Config (loadConfig)
+
 main :: IO ()
-main = putStrLn "cloudelog backend (stub — App.hs wiring pending)"
+main = loadConfig >>= startApp
