@@ -8,6 +8,9 @@ dist-newstyle/
 *.chs.h
 *.dyn_hi
 *.dyn_o
+# hpack generates the .cabal file from package.yaml
+backend/*.cabal
+stack.yaml.lock
 
 # Elm
 frontend/elm-stuff/
