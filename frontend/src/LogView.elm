@@ -59,6 +59,14 @@ computeStats entries today =
 ---------------------------------------------------------------
 
 
+type alias EditDraft =
+    { entryId : String
+    , qty : String
+    , desc : String
+    , submitting : Bool
+    }
+
+
 type alias Model =
     { logId : String
     , today : Date
@@ -69,6 +77,7 @@ type alias Model =
     , newQty : String
     , newDesc : String
     , submitting : Bool
+    , editing : Maybe EditDraft
     }
 
 
@@ -83,6 +92,7 @@ init logId today =
       , newQty = ""
       , newDesc = ""
       , submitting = False
+      , editing = Nothing
       }
     , Api.getLog logId LogFetched
     )
@@ -96,6 +106,12 @@ type Msg
     | EntryPosted (Result Http.Error (List Entry))
     | DeleteEntry String
     | EntryDeleted String (Result Http.Error ())
+    | StartEdit Entry
+    | EditQtyChanged String
+    | EditDescChanged String
+    | SaveEdit
+    | CancelEdit
+    | EditSaved (Result Http.Error Entry)
 
 
 type OutMsg
@@ -157,6 +173,80 @@ update msg model =
         EntryDeleted _ (Err err) ->
             ( { model | error = Just (Api.apiErrorToString err) }, Cmd.none, NoOp )
 
+        StartEdit e ->
+            ( { model
+                | editing =
+                    Just
+                        { entryId = e.id
+                        , qty = String.fromFloat e.quantity
+                        , desc = e.description
+                        , submitting = False
+                        }
+                , error = Nothing
+              }
+            , Cmd.none
+            , NoOp
+            )
+
+        EditQtyChanged s ->
+            case model.editing of
+                Just d ->
+                    ( { model | editing = Just { d | qty = s } }, Cmd.none, NoOp )
+
+                Nothing ->
+                    ( model, Cmd.none, NoOp )
+
+        EditDescChanged s ->
+            case model.editing of
+                Just d ->
+                    ( { model | editing = Just { d | desc = s } }, Cmd.none, NoOp )
+
+                Nothing ->
+                    ( model, Cmd.none, NoOp )
+
+        CancelEdit ->
+            ( { model | editing = Nothing }, Cmd.none, NoOp )
+
+        SaveEdit ->
+            case model.editing of
+                Just d ->
+                    case String.toFloat (String.trim d.qty) of
+                        Just q ->
+                            ( { model | editing = Just { d | submitting = True }, error = Nothing }
+                            , Api.updateEntry d.entryId { quantity = q, description = d.desc } EditSaved
+                            , NoOp
+                            )
+
+                        Nothing ->
+                            ( { model | error = Just "Quantity must be a number." }, Cmd.none, NoOp )
+
+                Nothing ->
+                    ( model, Cmd.none, NoOp )
+
+        EditSaved (Ok updated) ->
+            let
+                replace e =
+                    if e.id == updated.id then
+                        updated
+
+                    else
+                        e
+            in
+            ( { model | entries = List.map replace model.entries, editing = Nothing, error = Nothing }
+            , Cmd.none
+            , NoOp
+            )
+
+        EditSaved (Err err) ->
+            ( { model
+                | editing =
+                    Maybe.map (\d -> { d | submitting = False }) model.editing
+                , error = Just (Api.apiErrorToString err)
+              }
+            , Cmd.none
+            , NoOp
+            )
+
 
 view : Model -> Html Msg
 view model =
@@ -193,7 +283,11 @@ view model =
 
                     Nothing ->
                         text ""
-                , div [] (List.map viewEntryRow (List.reverse (List.sortBy (Date.toRataDie << .date) model.entries)))
+                , div []
+                    (List.map
+                        (viewEntryRow model.editing)
+                        (List.reverse (List.sortBy (Date.toRataDie << .date) model.entries))
+                    )
                 ]
 
 
@@ -233,8 +327,22 @@ viewAddForm m =
         ]
 
 
-viewEntryRow : Entry -> Html Msg
-viewEntryRow e =
+viewEntryRow : Maybe EditDraft -> Entry -> Html Msg
+viewEntryRow editing e =
+    case editing of
+        Just d ->
+            if d.entryId == e.id then
+                viewEditRow e d
+
+            else
+                viewReadRow e
+
+        Nothing ->
+            viewReadRow e
+
+
+viewReadRow : Entry -> Html Msg
+viewReadRow e =
     div [ class "row" ]
         [ div [ class "date" ] [ text (Date.toIsoString e.date) ]
         , div [ class "qty" ] [ text (String.fromFloat e.quantity) ]
@@ -248,5 +356,43 @@ viewEntryRow e =
                 )
             ]
         , div [ class "ctrls" ]
-            [ button [ onClick (DeleteEntry e.id) ] [ text "Del" ] ]
+            [ button [ onClick (StartEdit e) ] [ text "Edit" ]
+            , button [ onClick (DeleteEntry e.id) ] [ text "Del" ]
+            ]
+        ]
+
+
+viewEditRow : Entry -> EditDraft -> Html Msg
+viewEditRow e d =
+    div [ class "row" ]
+        [ div [ class "date" ] [ text (Date.toIsoString e.date) ]
+        , div [ class "qty" ]
+            [ input
+                [ type_ "number"
+                , step "any"
+                , value d.qty
+                , onInput EditQtyChanged
+                ]
+                []
+            ]
+        , div [ class "desc" ]
+            [ input
+                [ value d.desc
+                , onInput EditDescChanged
+                , placeholder "note (optional)"
+                ]
+                []
+            ]
+        , div [ class "ctrls" ]
+            [ button [ onClick SaveEdit, disabled d.submitting ]
+                [ text
+                    (if d.submitting then
+                        "Saving…"
+
+                     else
+                        "Save"
+                    )
+                ]
+            , button [ onClick CancelEdit, disabled d.submitting ] [ text "Cancel" ]
+            ]
         ]
