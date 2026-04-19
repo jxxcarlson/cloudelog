@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# cloudelog project CLI — thin dispatcher over scripts/*
+set -e
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+usage() {
+    cat <<EOF
+cloudelog run — project CLI
+
+Usage:
+  ./run restart [--all | backend | frontend]   Restart services (default: --all)
+  ./run kill                                    Stop backend and frontend
+  ./run psql [args...]                          psql into cloudelog_dev
+  ./run migrate [up|down|status]                Run dbmate migrations (default: up)
+  ./run test [backend|frontend|api|all]         Run tests (default: all)
+  ./run help                                    Show this message
+
+Aliases: stop = kill; be = backend; fe = frontend.
+EOF
+}
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+    restart)
+        target="${1:---all}"
+        case "$target" in
+            --all|all|"")
+                "$ROOT/scripts/be_restart.sh"
+                "$ROOT/scripts/fe_restart.sh"
+                ;;
+            backend|be)
+                "$ROOT/scripts/be_restart.sh"
+                ;;
+            frontend|fe)
+                "$ROOT/scripts/fe_restart.sh"
+                ;;
+            *)
+                echo "unknown restart target: $target" >&2
+                usage >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    kill|stop)
+        "$ROOT/scripts/kill.sh"
+        ;;
+    psql)
+        "$ROOT/scripts/psql.sh" "$@"
+        ;;
+    migrate)
+        "$ROOT/scripts/migrate.sh" "$@"
+        ;;
+    test)
+        target="${1:-all}"
+        case "$target" in
+            backend|be)
+                cd "$ROOT/backend" && stack test
+                ;;
+            frontend|fe)
+                cd "$ROOT/frontend" && elm-test
+                ;;
+            api)
+                "$ROOT/backend/test-api.sh"
+                ;;
+            all|"")
+                cd "$ROOT/backend" && stack test
+                cd "$ROOT/frontend" && elm-test
+                echo ""
+                echo "(api tests require a running backend — run './run test api' after './run restart backend')"
+                ;;
+            *)
+                echo "unknown test target: $target" >&2
+                usage >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    help|--help|-h)
+        usage
+        ;;
+    *)
+        echo "unknown command: $cmd" >&2
+        usage >&2
+        exit 1
+        ;;
+esac
