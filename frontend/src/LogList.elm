@@ -14,6 +14,7 @@ type alias NewLogForm =
     , unitChoice : String
     , customUnit : String
     , description : String
+    , startDate : String
     }
 
 
@@ -24,6 +25,7 @@ emptyForm =
     , unitChoice = "minutes"
     , customUnit = ""
     , description = ""
+    , startDate = ""
     }
 
 
@@ -56,6 +58,7 @@ type Msg
     | UnitChoiceChanged String
     | CustomUnitChanged String
     | DescriptionChanged String
+    | StartDateChanged String
     | SubmitNew
     | LogCreated (Result Http.Error Log)
     | OpenLog String
@@ -97,6 +100,9 @@ update msg model =
         DescriptionChanged s ->
             ( { model | form = updForm model.form (\f -> { f | description = s }) }, Cmd.none, NoOp )
 
+        StartDateChanged s ->
+            ( { model | form = updForm model.form (\f -> { f | startDate = s }) }, Cmd.none, NoOp )
+
         SubmitNew ->
             let
                 f =
@@ -113,9 +119,21 @@ update msg model =
                 ( { model | error = Just "Name and unit are required." }, Cmd.none, NoOp )
 
             else
+                let
+                    startDate =
+                        if String.isEmpty (String.trim f.startDate) then
+                            Nothing
+
+                        else
+                            Just (String.trim f.startDate)
+                in
                 ( model
                 , Api.createLog
-                    { name = String.trim f.name, unit = unit, description = f.description }
+                    { name = String.trim f.name
+                    , unit = unit
+                    , description = f.description
+                    , startDate = startDate
+                    }
                     LogCreated
                 , NoOp
                 )
@@ -128,6 +146,7 @@ update msg model =
                     , name = log.name
                     , unit = log.unit
                     , description = log.description
+                    , startDate = log.startDate
                     , createdAt = log.createdAt
                     , updatedAt = log.updatedAt
                     }
@@ -211,6 +230,13 @@ viewForm f =
           else
             text ""
         , input [ placeholder "description (optional)", value f.description, onInput DescriptionChanged ] []
+        , input
+            [ type_ "date"
+            , value f.startDate
+            , onInput StartDateChanged
+            , attribute "aria-label" "start date (optional, defaults to today)"
+            ]
+            []
         , button [ type_ "submit", class "primary" ] [ text "Create" ]
         , button [ type_ "button", onClick CloseNewForm ] [ text "Cancel" ]
         ]

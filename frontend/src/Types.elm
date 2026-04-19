@@ -23,6 +23,7 @@ type alias LogSummary =
     , name : String
     , unit : Unit
     , description : String
+    , startDate : Date
     , createdAt : Posix
     , updatedAt : Posix
     }
@@ -33,6 +34,7 @@ type alias Log =
     , name : String
     , unit : Unit
     , description : String
+    , startDate : Date
     , createdAt : Posix
     , updatedAt : Posix
     }

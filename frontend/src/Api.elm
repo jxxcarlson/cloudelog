@@ -161,18 +161,30 @@ listLogs toMsg =
         }
 
 
-createLog : { name : String, unit : String, description : String } -> (Result Http.Error Log -> msg) -> Cmd msg
-createLog { name, unit, description } toMsg =
+createLog :
+    { name : String, unit : String, description : String, startDate : Maybe String }
+    -> (Result Http.Error Log -> msg)
+    -> Cmd msg
+createLog { name, unit, description, startDate } toMsg =
+    let
+        baseFields =
+            [ ( "name", E.string name )
+            , ( "unit", E.string unit )
+            , ( "description", E.string description )
+            ]
+
+        fields =
+            case startDate of
+                Just s ->
+                    baseFields ++ [ ( "startDate", E.string s ) ]
+
+                Nothing ->
+                    baseFields
+    in
     cookieRequest
         { method = "POST"
         , url = apiBase ++ "/api/logs"
-        , body =
-            Http.jsonBody <|
-                E.object
-                    [ ( "name", E.string name )
-                    , ( "unit", E.string unit )
-                    , ( "description", E.string description )
-                    ]
+        , body = Http.jsonBody (E.object fields)
         , expect = Http.expectJson toMsg logDecoder
         }
 
@@ -306,22 +318,24 @@ unitDecoder =
 
 logDecoder : D.Decoder Log
 logDecoder =
-    D.map6 Log
+    D.map7 Log
         (D.field "id" D.string)
         (D.field "name" D.string)
         (D.field "unit" unitDecoder)
         (D.field "description" D.string)
+        (D.field "startDate" dateDecoder)
         (D.field "createdAt" Iso8601.decoder)
         (D.field "updatedAt" Iso8601.decoder)
 
 
 logSummaryDecoder : D.Decoder LogSummary
 logSummaryDecoder =
-    D.map6 LogSummary
+    D.map7 LogSummary
         (D.field "id" D.string)
         (D.field "name" D.string)
         (D.field "unit" unitDecoder)
         (D.field "description" D.string)
+        (D.field "startDate" dateDecoder)
         (D.field "createdAt" Iso8601.decoder)
         (D.field "updatedAt" Iso8601.decoder)
 
