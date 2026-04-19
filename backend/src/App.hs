@@ -9,25 +9,31 @@ import qualified Handler.Entries            as H
 import qualified Handler.Logs               as H
 import           Control.Monad.Reader       (runReaderT)
 import qualified Data.ByteString.Char8      as BS
+import           Data.Char                  (toLower)
 import           Network.Wai                (Middleware, rawPathInfo, rawQueryString, requestMethod)
 import           Network.Wai.Handler.Warp   (run)
 import           Network.Wai.Middleware.Cors
 import           Servant
 import           Servant.Auth.Server        (CookieSettings, JWTSettings)
-import           Service.Auth               (defaultCookieSettingsDev, makeJwtSettings)
+import           Service.Auth               (defaultCookieSettingsDev, defaultCookieSettingsProd, makeJwtSettings)
+import           System.Environment         (lookupEnv)
 import           System.IO                  (hFlush, stdout)
 
 startApp :: Config -> IO ()
 startApp cfg = do
   pool <- Db.createPool (configDbUrl cfg)
-  let env = AppEnv
+  cookieSecure <- maybe False ((== "true") . map toLower) <$> lookupEnv "COOKIE_SECURE"
+  let cookieSettings =
+        if cookieSecure then defaultCookieSettingsProd else defaultCookieSettingsDev
+      env = AppEnv
         { envDbPool         = pool
         , envJwtSettings    = makeJwtSettings (configJwtSecret cfg)
-        , envCookieSettings = defaultCookieSettingsDev
+        , envCookieSettings = cookieSettings
         , envPort           = configPort cfg
         , envJwtExpiryDays  = configJwtExpiryDays cfg
         }
   putStrLn $ "cloudelog backend listening on port " <> show (configPort cfg)
+                <> " (cookieSecure=" <> show cookieSecure <> ")"
   run (configPort cfg) (requestLogger (corsMiddleware (mkApp env)))
 
 -- | Log method + path for every request so we can see what the frontend sends.

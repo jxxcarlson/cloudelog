@@ -5,6 +5,7 @@ module Service.Auth
   , makeJwtSettings
   , expiryFromNow
   , defaultCookieSettingsDev
+  , defaultCookieSettingsProd
   ) where
 
 import           Crypto.BCrypt          (hashPasswordUsingPolicy, slowerBcryptHashingPolicy, validatePassword)
@@ -55,11 +56,15 @@ expiryFromNow days = do
 --   * cookieIsSecure = NotSecure  — HTTP localhost is OK
 --   * cookieSameSite = SameSiteLax
 --   * XSRF disabled for simplicity (pure JSON API, no HTML forms with cookies)
---
--- For production, override cookieIsSecure = Secure.
 defaultCookieSettingsDev :: CookieSettings
 defaultCookieSettingsDev = defaultCookieSettings
   { cookieIsSecure    = NotSecure
   , cookieSameSite    = SameSiteLax
   , cookieXsrfSetting = Nothing
   }
+
+-- | Production cookie settings: same as Dev but with the Secure flag set,
+--   so the browser only sends the JWT cookie over HTTPS.
+defaultCookieSettingsProd :: CookieSettings
+defaultCookieSettingsProd = defaultCookieSettingsDev
+  { cookieIsSecure = Secure }
