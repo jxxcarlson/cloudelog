@@ -116,16 +116,24 @@ update msg model =
             ( withUser, postAuthCmd ) |> maybeTransition
 
         MeResponded (Err _) ->
-            -- No valid cookie: redirect to /login unless we're already on an auth page.
-            case model.route of
-                Login ->
-                    ( { model | page = PageAuth (Auth.init Auth.LoginMode) }, Cmd.none )
+            -- Only act on this response while we're still on the loading
+            -- screen (boot-time probe). If the user has already reached
+            -- an auth page and started interacting, leave them alone —
+            -- otherwise a late /me response clobbers mid-flight mode switches.
+            case model.page of
+                PageLoading ->
+                    case model.route of
+                        Login ->
+                            ( { model | page = PageAuth (Auth.init Auth.LoginMode) }, Cmd.none )
 
-                Signup ->
-                    ( { model | page = PageAuth (Auth.init Auth.SignupMode) }, Cmd.none )
+                        Signup ->
+                            ( { model | page = PageAuth (Auth.init Auth.SignupMode) }, Cmd.none )
+
+                        _ ->
+                            ( model, Nav.pushUrl model.key "/login" )
 
                 _ ->
-                    ( model, Nav.pushUrl model.key "/login" )
+                    ( model, Cmd.none )
 
         AuthMsg subMsg ->
             case model.page of
