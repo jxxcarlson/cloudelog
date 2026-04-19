@@ -61,9 +61,12 @@ PORT=8087
 JWT_SECRET=<output of: openssl rand -base64 48>
 JWT_EXPIRY_DAYS=7
 COOKIE_SECURE=true
+CORS_ALLOWED_ORIGINS=https://cloudelog.app
 ```
 
 `COOKIE_SECURE=true` activates the Secure flag; the code that reads it is already in `main` (see Phase 0).
+
+`CORS_ALLOWED_ORIGINS` is a comma-separated list of browser origins that may call the API with credentials. Without it, the backend defaults to the dev frontend (`http://localhost:8011`) and the browser gets a 400 `Unsupported origin` on signup/login from the production domain.
 
 ## Phase 4 — Migrations + first smoke test
 
