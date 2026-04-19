@@ -67,6 +67,12 @@ type alias EditDraft =
     }
 
 
+type alias DescDraft =
+    { text : String
+    , submitting : Bool
+    }
+
+
 type alias Model =
     { logId : String
     , today : Date
@@ -78,6 +84,7 @@ type alias Model =
     , newDesc : String
     , submitting : Bool
     , editing : Maybe EditDraft
+    , editingDesc : Maybe DescDraft
     }
 
 
@@ -93,6 +100,7 @@ init logId today =
       , newDesc = ""
       , submitting = False
       , editing = Nothing
+      , editingDesc = Nothing
       }
     , Api.getLog logId LogFetched
     )
@@ -112,6 +120,11 @@ type Msg
     | SaveEdit
     | CancelEdit
     | EditSaved (Result Http.Error Entry)
+    | StartEditDesc
+    | DescDraftChanged String
+    | SaveDesc
+    | CancelDesc
+    | DescSaved (Result Http.Error Log)
 
 
 type OutMsg
@@ -247,6 +260,60 @@ update msg model =
             , NoOp
             )
 
+        StartEditDesc ->
+            case model.log of
+                Just log ->
+                    ( { model
+                        | editingDesc = Just { text = log.description, submitting = False }
+                        , error = Nothing
+                      }
+                    , Cmd.none
+                    , NoOp
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none, NoOp )
+
+        DescDraftChanged s ->
+            case model.editingDesc of
+                Just d ->
+                    ( { model | editingDesc = Just { d | text = s } }, Cmd.none, NoOp )
+
+                Nothing ->
+                    ( model, Cmd.none, NoOp )
+
+        SaveDesc ->
+            case ( model.log, model.editingDesc ) of
+                ( Just log, Just d ) ->
+                    ( { model | editingDesc = Just { d | submitting = True }, error = Nothing }
+                    , Api.updateLog log.id
+                        { name = log.name, description = d.text, unit = Nothing }
+                        DescSaved
+                    , NoOp
+                    )
+
+                _ ->
+                    ( model, Cmd.none, NoOp )
+
+        CancelDesc ->
+            ( { model | editingDesc = Nothing }, Cmd.none, NoOp )
+
+        DescSaved (Ok log) ->
+            ( { model | log = Just log, editingDesc = Nothing, error = Nothing }
+            , Cmd.none
+            , NoOp
+            )
+
+        DescSaved (Err err) ->
+            ( { model
+                | editingDesc =
+                    Maybe.map (\d -> { d | submitting = False }) model.editingDesc
+                , error = Just (Api.apiErrorToString err)
+              }
+            , Cmd.none
+            , NoOp
+            )
+
 
 view : Model -> Html Msg
 view model =
@@ -271,11 +338,13 @@ view model =
                     , text (" · since " ++ Date.toIsoString log.startDate)
                     ]
                 , viewStats stats
-                , if String.isEmpty log.description then
-                    text ""
-
-                  else
-                    p [ style "color" "#555" ] [ text log.description ]
+                , viewDescription model.editingDesc log
+                , hr
+                    [ style "margin" "0.5rem 0 1rem 0"
+                    , style "border" "none"
+                    , style "border-top" "1px solid #ddd"
+                    ]
+                    []
                 , viewAddForm model
                 , case model.error of
                     Just e ->
@@ -288,6 +357,77 @@ view model =
                         (viewEntryRow model.editing)
                         (List.reverse (List.sortBy (Date.toRataDie << .date) model.entries))
                     )
+                ]
+
+
+viewDescription : Maybe DescDraft -> Log -> Html Msg
+viewDescription editing log =
+    case editing of
+        Just d ->
+            let
+                smallBtn =
+                    [ style "padding" "0.2rem 0.5rem"
+                    , style "font-size" "0.85rem"
+                    ]
+            in
+            div
+                [ style "margin" "0.5rem 0"
+                , style "display" "flex"
+                , style "gap" "0.5rem"
+                , style "align-items" "stretch"
+                ]
+                [ textarea
+                    [ rows 3
+                    , value d.text
+                    , onInput DescDraftChanged
+                    , placeholder "description"
+                    , style "flex" "1 1 auto"
+                    , style "min-width" "0"
+                    , style "box-sizing" "border-box"
+                    , style "font-family" "inherit"
+                    , style "font-size" "1rem"
+                    ]
+                    []
+                , div
+                    [ style "display" "flex"
+                    , style "flex-direction" "column"
+                    , style "justify-content" "space-between"
+                    , style "flex" "0 0 auto"
+                    ]
+                    [ button (onClick SaveDesc :: disabled d.submitting :: smallBtn)
+                        [ text
+                            (if d.submitting then
+                                "Saving…"
+
+                             else
+                                "Save"
+                            )
+                        ]
+                    , button (onClick CancelDesc :: disabled d.submitting :: smallBtn) [ text "Cancel" ]
+                    ]
+                ]
+
+        Nothing ->
+            let
+                smallBtn =
+                    [ style "padding" "0.2rem 0.5rem"
+                    , style "font-size" "0.85rem"
+                    , style "flex" "0 0 auto"
+                    ]
+            in
+            div
+                [ style "margin" "0.5rem 0"
+                , style "display" "flex"
+                , style "gap" "0.5rem"
+                , style "align-items" "flex-start"
+                ]
+                [ p
+                    [ style "color" "#555"
+                    , style "margin" "0"
+                    , style "flex" "1 1 auto"
+                    ]
+                    [ text log.description ]
+                , button (onClick StartEditDesc :: smallBtn) [ text "Edit" ]
                 ]
 
 
