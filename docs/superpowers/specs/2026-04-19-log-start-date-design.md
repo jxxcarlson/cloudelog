@@ -78,8 +78,22 @@ The two skip-fill mechanisms compose without coordination.
 ## Entry editing
 
 Skip entries are plain `entries` rows. The existing `PUT /api/entries/:id`
-already updates quantity and description and is the only endpoint needed.
-No changes here.
+already updates quantity and description — no backend changes. However,
+`LogView.elm` currently has no edit UI (only a "Del" button per row), so
+this plan also adds inline entry editing:
+
+- Each entry row gets an "Edit" button next to "Del".
+- Clicking Edit swaps the row into an editable form with a quantity input
+  (`type="number"`, `step="any"`) and a description input, plus "Save" and
+  "Cancel" buttons.
+- Save calls `Api.updateEntry` and, on success, replaces the row in
+  `model.entries` with the server-returned `Entry`.
+- Cancel reverts to the read-only row without an HTTP call.
+- Only one row can be in edit mode at a time. Opening Edit on another row
+  (or the Cancel/Save of the current one) closes the previous edit.
+
+This same UI serves both ordinary entries and backfilled skip entries —
+they are schema-identical.
 
 ## Frontend
 
@@ -104,6 +118,7 @@ No changes here.
 
 **Log view** (`frontend/src/LogView.elm`):
 - Display "since YYYY-MM-DD" in the log header, one line. Source: `log.startDate`.
+- Add inline entry edit (see "Entry editing" above).
 
 **Log list row** (`frontend/src/LogList.elm viewRow`): unchanged.
 
