@@ -43,9 +43,9 @@ CREATE TABLE public.logs (
     name text NOT NULL,
     description text DEFAULT ''::text NOT NULL,
     unit text NOT NULL,
-    start_date date DEFAULT CURRENT_DATE NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    start_date date DEFAULT CURRENT_DATE NOT NULL
 );
 
 
