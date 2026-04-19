@@ -176,7 +176,10 @@ view model =
             in
             div []
                 [ h1 [] [ text log.name ]
-                , p [] [ text ("Unit: " ++ unitToString log.unit) ]
+                , p []
+                    [ text ("Unit: " ++ unitToString log.unit)
+                    , text (" · since " ++ Date.toIsoString log.startDate)
+                    ]
                 , viewStats stats
                 , if String.isEmpty log.description then
                     text ""
