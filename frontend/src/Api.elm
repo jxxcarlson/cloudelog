@@ -29,7 +29,7 @@ import Types exposing (Entry, Log, LogSummary, Unit(..), User, unitFromString, u
 
 apiBase : String
 apiBase =
-    "http://localhost:8081"
+    ""
 
 
 type alias ApiError =

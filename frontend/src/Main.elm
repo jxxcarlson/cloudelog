@@ -130,7 +130,7 @@ update msg model =
                             ( { model | page = PageAuth (Auth.init Auth.SignupMode) }, Cmd.none )
 
                         _ ->
-                            ( model, Nav.pushUrl model.key "/login" )
+                            ( model, Nav.replaceUrl model.key "/login" )
 
                 _ ->
                     ( model, Cmd.none )
@@ -220,13 +220,21 @@ goto model route =
     let
         base =
             { model | route = route }
+
+        currentEmail =
+            case model.page of
+                PageAuth auth ->
+                    auth.email
+
+                _ ->
+                    ""
     in
     case ( route, model.user, model.today ) of
         ( Login, _, _ ) ->
-            ( { base | page = PageAuth (Auth.init Auth.LoginMode) }, Cmd.none )
+            ( { base | page = PageAuth (Auth.initWithEmail Auth.LoginMode currentEmail) }, Cmd.none )
 
         ( Signup, _, _ ) ->
-            ( { base | page = PageAuth (Auth.init Auth.SignupMode) }, Cmd.none )
+            ( { base | page = PageAuth (Auth.initWithEmail Auth.SignupMode currentEmail) }, Cmd.none )
 
         ( _, Nothing, _ ) ->
             ( base, Nav.pushUrl model.key "/login" )

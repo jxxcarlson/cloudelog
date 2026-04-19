@@ -1,9 +1,9 @@
-module Auth exposing (Model, Msg(..), Mode(..), OutMsg(..), init, update, view)
+module Auth exposing (Model, Msg(..), Mode(..), OutMsg(..), init, initWithEmail, update, view)
 
 import Api
 import Html exposing (Html, a, button, div, form, h1, input, p, text)
-import Html.Attributes exposing (autofocus, disabled, placeholder, type_, value)
-import Html.Events exposing (onClick, onInput, onSubmit)
+import Html.Attributes exposing (attribute, autocomplete, autofocus, disabled, href, placeholder, type_, value)
+import Html.Events exposing (onInput, onSubmit)
 import Http
 
 
@@ -31,10 +31,19 @@ init mode =
     }
 
 
+initWithEmail : Mode -> String -> Model
+initWithEmail mode email =
+    { mode = mode
+    , email = email
+    , password = ""
+    , submitting = False
+    , error = Nothing
+    }
+
+
 type Msg
     = EmailChanged String
     | PasswordChanged String
-    | SwitchMode Mode
     | Submitted
     | AuthResponded (Result Http.Error ())
 
@@ -52,13 +61,6 @@ update msg model =
 
         PasswordChanged p ->
             ( { model | password = p }, Cmd.none, NoOp )
-
-        SwitchMode m ->
-            let
-                fresh =
-                    init m
-            in
-            ( { fresh | email = model.email }, Cmd.none, NoOp )
 
         Submitted ->
             if model.submitting then
@@ -105,7 +107,7 @@ view m =
 
             Nothing ->
                 text ""
-        , form [ onSubmit Submitted ]
+        , form [ onSubmit Submitted, autocomplete False ]
             [ div []
                 [ input
                     [ type_ "email"
@@ -113,6 +115,7 @@ view m =
                     , placeholder "you@example.com"
                     , value m.email
                     , onInput EmailChanged
+                    , attribute "autocomplete" "off"
                     ]
                     []
                 ]
@@ -122,6 +125,7 @@ view m =
                     , placeholder "Password (min 8 chars)"
                     , value m.password
                     , onInput PasswordChanged
+                    , attribute "autocomplete" "new-password"
                     ]
                     []
                 ]
@@ -146,12 +150,12 @@ view m =
             (case m.mode of
                 LoginMode ->
                     [ text "No account? "
-                    , a [ onClick (SwitchMode SignupMode) ] [ text "Sign up" ]
+                    , a [ href "/signup" ] [ text "Sign up" ]
                     ]
 
                 SignupMode ->
                     [ text "Have an account? "
-                    , a [ onClick (SwitchMode LoginMode) ] [ text "Sign in" ]
+                    , a [ href "/login" ] [ text "Sign in" ]
                     ]
             )
         ]
