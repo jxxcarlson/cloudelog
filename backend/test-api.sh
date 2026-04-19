@@ -26,6 +26,57 @@ say "Me (cookie)"
 ME=$(curl -sS -b "$COOKIES" "$BASE/api/auth/me")
 echo "$ME" | grep -q "$EMAIL" && ok "me returns email" || fail "me"
 
+TODAY=$(date -u +%Y-%m-%d)
+# macOS date uses -v; GNU date uses -d. Pick whichever works.
+if date -u -v-3d +%Y-%m-%d >/dev/null 2>&1; then
+  THREE_DAYS_AGO=$(date -u -v-3d +%Y-%m-%d)
+  TOMORROW=$(date -u -v+1d +%Y-%m-%d)
+else
+  THREE_DAYS_AGO=$(date -u -d '3 days ago' +%Y-%m-%d)
+  TOMORROW=$(date -u -d '1 day' +%Y-%m-%d)
+fi
+
+say "Create log with explicit startDate 3 days ago (expect 3 skip-fill entries)"
+LOG_SD=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"Backfilled\",\"unit\":\"minutes\",\"description\":\"\",\"startDate\":\"$THREE_DAYS_AGO\"}")
+LOG_SD_ID=$(echo "$LOG_SD" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+SD_IN_RESP=$(echo "$LOG_SD" | python3 -c 'import sys,json; print(json.load(sys.stdin)["startDate"])')
+[ "$SD_IN_RESP" = "$THREE_DAYS_AGO" ] && ok "startDate echoed in response" || fail "startDate response ($SD_IN_RESP)"
+
+GOT=$(curl -sS -b "$COOKIES" "$BASE/api/logs/$LOG_SD_ID")
+N_ENTRIES=$(echo "$GOT" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["entries"]))')
+[ "$N_ENTRIES" = "3" ] && ok "3 backfilled entries present" || fail "expected 3 entries, got $N_ENTRIES"
+ALL_ZERO=$(echo "$GOT" | python3 -c 'import sys,json; es=json.load(sys.stdin)["entries"]; print(all(e["quantity"]==0 and e["description"]=="" for e in es))')
+[ "$ALL_ZERO" = "True" ] && ok "all backfilled entries are zero/empty" || fail "backfilled entries not zero/empty"
+
+say "Create log with no startDate (expect startDate == today, 0 entries)"
+LOG_TODAY=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"TodayOnly","unit":"minutes","description":""}')
+LOG_TODAY_ID=$(echo "$LOG_TODAY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+SD_TODAY=$(echo "$LOG_TODAY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["startDate"])')
+[ "$SD_TODAY" = "$TODAY" ] && ok "startDate defaults to today" || fail "default startDate ($SD_TODAY vs $TODAY)"
+N_TODAY=$(curl -sS -b "$COOKIES" "$BASE/api/logs/$LOG_TODAY_ID" \
+  | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["entries"]))')
+[ "$N_TODAY" = "0" ] && ok "no entries when startDate == today" || fail "expected 0 entries, got $N_TODAY"
+
+say "Reject future startDate (expect 400)"
+HTTP=$(curl -sS -b "$COOKIES" -o /dev/null -w "%{http_code}" -X POST "$BASE/api/logs" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"FutureLog\",\"unit\":\"minutes\",\"description\":\"\",\"startDate\":\"$TOMORROW\"}")
+[ "$HTTP" = "400" ] && ok "future startDate rejected" || fail "future startDate should 400 (got $HTTP)"
+
+say "Edit a backfilled skip entry (PUT /api/entries/:id)"
+FIRST_SKIP_ID=$(echo "$GOT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["entries"][0]["id"])')
+EDITED=$(curl -sS -b "$COOKIES" -X PUT "$BASE/api/entries/$FIRST_SKIP_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"quantity":20,"description":"late edit"}')
+EQ=$(echo "$EDITED" | python3 -c 'import sys,json; print(json.load(sys.stdin)["quantity"])')
+ED=$(echo "$EDITED" | python3 -c 'import sys,json; print(json.load(sys.stdin)["description"])')
+[ "$EQ" = "20.0" ] || [ "$EQ" = "20" ] && ok "skip entry quantity updated" || fail "edit quantity ($EQ)"
+[ "$ED" = "late edit" ] && ok "skip entry description updated" || fail "edit description ($ED)"
+
 say "Create log (minutes)"
 LOG=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs" \
   -H "Content-Type: application/json" \
