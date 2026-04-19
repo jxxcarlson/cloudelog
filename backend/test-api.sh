@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# End-to-end API smoke test. Assumes backend is running on :8081
-# and the DB is clean-ish (a unique email per run sidesteps collisions).
+# End-to-end API smoke test. Assumes the backend is running and reachable.
+# Default target is localhost:8081 (dev); override via BASE env var, e.g.
+#   BASE=http://localhost:8087 bash backend/test-api.sh
+# The DB is expected to be clean-ish (a unique email per run sidesteps collisions).
 set -u
 
-BASE="http://localhost:8081"
+BASE="${BASE:-http://localhost:8081}"
 EMAIL="test-$(date +%s)@example.com"
 PW="hunter22"
 COOKIES="/tmp/cloudelog-test-cookies-$$"
