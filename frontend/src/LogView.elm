@@ -328,10 +328,26 @@ viewStats s =
 
 viewAddForm : Model -> Html Msg
 viewAddForm m =
-    Html.form [ onSubmit AddEntry ]
-        [ input [ type_ "number", step "any", placeholder "quantity", value m.newQty, onInput QtyChanged ] []
-        , input [ placeholder "note (optional)", value m.newDesc, onInput DescChanged ] []
-        , button [ type_ "submit", class "primary", disabled m.submitting ]
+    Html.form [ onSubmit AddEntry, style "width" "100%" ]
+        [ input
+            [ type_ "number"
+            , step "any"
+            , placeholder "quantity"
+            , value m.newQty
+            , onInput QtyChanged
+            , style "width" "7rem"
+            , style "flex" "0 0 auto"
+            ]
+            []
+        , input
+            [ placeholder "note (optional)"
+            , value m.newDesc
+            , onInput DescChanged
+            , style "flex" "1 1 auto"
+            , style "min-width" "0"
+            ]
+            []
+        , button [ type_ "submit", class "primary", disabled m.submitting, style "flex" "0 0 auto" ]
             [ text
                 (if m.submitting then
                     "Adding…"
