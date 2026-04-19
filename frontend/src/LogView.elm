@@ -298,15 +298,31 @@ viewStats s =
         fmt n =
             String.fromFloat n
 
-        maybeFmt : Maybe Float -> String
-        maybeFmt =
-            Maybe.map fmt >> Maybe.withDefault "—"
+        -- One decimal place, padded with ".0" when rounding yields an integer.
+        fmt1 : Float -> String
+        fmt1 n =
+            let
+                rounded =
+                    toFloat (round (n * 10)) / 10
+
+                base =
+                    String.fromFloat rounded
+            in
+            if String.contains "." base then
+                base
+
+            else
+                base ++ ".0"
+
+        maybeFmt1 : Maybe Float -> String
+        maybeFmt1 =
+            Maybe.map fmt1 >> Maybe.withDefault "—"
     in
     div [ class "stats" ]
         [ div [] [ text ("Days: " ++ String.fromInt s.days) ]
         , div [] [ text ("Skipped: " ++ String.fromInt s.skipped) ]
         , div [] [ text ("Total: " ++ fmt s.total) ]
-        , div [] [ text ("Avg: " ++ maybeFmt s.average) ]
+        , div [] [ text ("Avg: " ++ maybeFmt1 s.average) ]
         ]
 
 
