@@ -44,6 +44,7 @@ data CreateLogRequest = CreateLogRequest
   { clrName        :: Text
   , clrUnit        :: Text
   , clrDescription :: Maybe Text
+  , clrStartDate   :: Maybe Day
   } deriving (Show, Generic)
 instance FromJSON CreateLogRequest where parseJSON = genericParseJSON (stripPrefixOptions 3)
 
@@ -59,6 +60,7 @@ data LogResponse = LogResponse
   , logrName        :: Text
   , logrUnit        :: Text
   , logrDescription :: Text
+  , logrStartDate   :: Day
   , logrCreatedAt   :: UTCTime
   , logrUpdatedAt   :: UTCTime
   } deriving (Show, Generic)

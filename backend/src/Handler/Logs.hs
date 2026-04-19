@@ -14,21 +14,26 @@ import           AppError                (AppError(..), appErrorToServantErr)
 import qualified Db.Entry                as DbEntry
 import qualified Db.Log                  as DbLog
 import qualified Db.User                 as DbUser
-import           Control.Monad           (when)
+import           Control.Monad           (unless, when)
 import           Control.Monad.IO.Class  (liftIO)
 import           Control.Monad.Reader    (asks)
 import           Control.Monad.Except    (throwError)
 import           Data.Maybe              (fromMaybe)
 import           Data.Text               (Text)
 import qualified Data.Text               as T
+import           Data.Time.Calendar      (Day, addDays)
+import           Data.Time.Clock         (getCurrentTime, utctDay)
 import           Data.UUID               (toText)
 import qualified Data.UUID.V4            as UUID
 import qualified Data.Vector             as V
 import qualified Hasql.Pool              as Pool
 import qualified Hasql.Session           as Session
+import qualified Hasql.Transaction       as Tx
+import qualified Hasql.Transaction.Sessions as Tx
 import           Servant                 (NoContent(..))
 import           Servant.Auth.Server     (AuthResult(..))
 import           Service.Auth            (AuthUser(..))
+import           Service.SkipFill        (datesToFill)
 import           Types.Common            (UserId)
 import           Types.Log               (Log(..))
 import           Types.Entry             (Entry(..))
@@ -50,19 +55,43 @@ listLogsHandler auth = do
     Right v -> pure $ map toLogResponse (V.toList v)
 
 -- POST /api/logs
+-- In a single transaction: insert the log, and if startDate < today,
+-- bulk-insert zero-quantity skip entries for [startDate, today).
 createLogHandler :: AuthResult AuthUser -> CreateLogRequest -> AppM LogResponse
 createLogHandler auth CreateLogRequest{..} = do
   uid <- requireUser auth
   validateUnit clrUnit
   validateName clrName
-  pool <- asks envDbPool
-  lid  <- liftIO $ toText <$> UUID.nextRandom
-  let desc = fromMaybe "" clrDescription
-  r <- liftIO $ Pool.use pool $
-         Session.statement (lid, uid, clrName, desc, normalizeUnit clrUnit) DbLog.insertLog
-  case r of
+  pool  <- asks envDbPool
+  today <- liftIO (utctDay <$> getCurrentTime)
+  startDate <- case clrStartDate of
+    Nothing -> pure today
+    Just d  -> do
+      when (d > today) $
+        throwError $ appErrorToServantErr (BadRequest "start date cannot be in the future")
+      pure d
+  lid <- liftIO $ toText <$> UUID.nextRandom
+  let desc     = fromMaybe "" clrDescription
+      fillDays = datesToFill (Just (addDays (-1) startDate)) today
+  fillIds <- liftIO $ generateUuids (length fillDays)
+  result <- liftIO $ Pool.use pool $
+    Tx.transaction Tx.Serializable Tx.Write $ do
+      l <- Tx.statement
+             (lid, uid, clrName, desc, normalizeUnit clrUnit, startDate)
+             DbLog.insertLog
+      unless (null fillDays) $
+        Tx.statement
+          (lid, V.fromList fillIds, V.fromList fillDays)
+          DbEntry.insertSkipFills
+      pure l
+  case result of
     Left _  -> throwError $ appErrorToServantErr (Internal "database error")
     Right l -> pure (toLogResponse l)
+
+generateUuids :: Int -> IO [Text]
+generateUuids n
+  | n <= 0    = pure []
+  | otherwise = mapM (\_ -> toText <$> UUID.nextRandom) [1..n]
 
 -- GET /api/logs/:id
 -- Side effect: sets users.current_log_id = :id for the authenticated user.
@@ -143,6 +172,7 @@ toLogResponse l = LogResponse
   , logrName        = logName l
   , logrUnit        = logUnit l
   , logrDescription = logDescription l
+  , logrStartDate   = logStartDate l
   , logrCreatedAt   = logCreatedAt l
   , logrUpdatedAt   = logUpdatedAt l
   }
