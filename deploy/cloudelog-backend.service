@@ -1,0 +1,41 @@
+[Unit]
+Description=cloudelog backend
+After=network.target postgresql.service
+Wants=postgresql.service
+
+# Fail fast if it crashes repeatedly — gives you a clean error state
+# instead of a runaway restart spiral while you debug.
+StartLimitIntervalSec=30
+StartLimitBurst=3
+
+[Service]
+Type=simple
+
+# Adjust User / paths if you don't run as root.
+User=root
+WorkingDirectory=/root/cloudelog/backend
+
+# DATABASE_URL, JWT_SECRET, JWT_EXPIRY_DAYS, PORT, etc. live in
+# /root/cloudelog/.env — see deploy/README.md.
+EnvironmentFile=/root/cloudelog/.env
+
+# Call the compiled binary directly. `stack exec` computes a snapshot
+# hash that can differ between interactive shells and systemd's context,
+# causing "Executable named cloudelog-backend not found on path" failures
+# under systemd even when the binary exists. Install once with:
+#
+#     cd /root/cloudelog/backend && stack install --local-bin-path /usr/local/bin
+#
+# and then this unit just runs the resulting binary.
+ExecStart=/usr/local/bin/cloudelog-backend
+
+Restart=on-failure
+RestartSec=3
+
+# Lock down the service a little.
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
