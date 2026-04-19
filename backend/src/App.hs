@@ -8,11 +8,14 @@ import qualified Handler.Auth               as H
 import qualified Handler.Entries            as H
 import qualified Handler.Logs               as H
 import           Control.Monad.Reader       (runReaderT)
+import qualified Data.ByteString.Char8      as BS
+import           Network.Wai                (Middleware, rawPathInfo, rawQueryString, requestMethod)
 import           Network.Wai.Handler.Warp   (run)
 import           Network.Wai.Middleware.Cors
 import           Servant
 import           Servant.Auth.Server        (CookieSettings, JWTSettings)
 import           Service.Auth               (defaultCookieSettingsDev, makeJwtSettings)
+import           System.IO                  (hFlush, stdout)
 
 startApp :: Config -> IO ()
 startApp cfg = do
@@ -25,7 +28,18 @@ startApp cfg = do
         , envJwtExpiryDays  = configJwtExpiryDays cfg
         }
   putStrLn $ "cloudelog backend listening on port " <> show (configPort cfg)
-  run (configPort cfg) (corsMiddleware (mkApp env))
+  run (configPort cfg) (requestLogger (corsMiddleware (mkApp env)))
+
+-- | Log method + path for every request so we can see what the frontend sends.
+requestLogger :: Middleware
+requestLogger app req respond = do
+  putStrLn $
+    BS.unpack (requestMethod req)
+      <> " "
+      <> BS.unpack (rawPathInfo req)
+      <> BS.unpack (rawQueryString req)
+  hFlush stdout
+  app req respond
 
 corsMiddleware :: Application -> Application
 corsMiddleware = cors (const (Just policy))
