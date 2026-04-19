@@ -10,32 +10,16 @@ This runbook assumes you run as `root` on the droplet, matching greppit. That ke
 
 ---
 
-## Phase 0 — Required code change before first production deploy
+## Phase 0 — Cookie security flag (already shipped)
 
-The backend's cookie settings currently hardcode `cookieIsSecure = NotSecure` in `backend/src/Service/Auth.hs` so localhost HTTP dev works. **Before your first production deploy**, make cookie security driven by the `COOKIE_SECURE` env var.
+The backend picks between Dev (insecure cookie) and Prod (Secure cookie) based on the `COOKIE_SECURE` env var. Shipped in commit `186007d`.
 
-Add `defaultCookieSettingsProd` in `backend/src/Service/Auth.hs` (same as Dev but with `cookieIsSecure = Secure`) and export it:
+- `COOKIE_SECURE` unset / `false` → `cookieIsSecure = NotSecure` (localhost HTTP dev).
+- `COOKIE_SECURE=true` → `cookieIsSecure = Secure` (HTTPS production).
 
-```haskell
-defaultCookieSettingsProd :: CookieSettings
-defaultCookieSettingsProd = defaultCookieSettingsDev
-  { cookieIsSecure = Secure }
-```
+The active mode is logged at startup (`cookieSecure=True/False`) so you can confirm it in `journalctl -u cloudelog-backend`.
 
-In `backend/src/App.hs`, import `System.Environment (lookupEnv)` and `Data.Char (toLower)`, then pick the settings from the env:
-
-```haskell
-cookieSecure <- maybe False ((== "true") . map toLower) <$> lookupEnv "COOKIE_SECURE"
-let cookieSettings =
-      if cookieSecure then defaultCookieSettingsProd else defaultCookieSettingsDev
--- …and use `cookieSettings` in place of `defaultCookieSettingsDev` in envCookieSettings.
-```
-
-Build locally, run `backend/test-api.sh` to confirm dev still works, commit, push.
-
-> **Why it matters:** without this, the browser refuses to send the JWT cookie over HTTPS because the server sets it without the `Secure` flag, and login silently fails — same class of bug as the cross-origin cookie issue we hit in dev.
-
-I can apply this patch for you any time — just say the word.
+> **Why it matters:** without `Secure` on HTTPS, browsers refuse to send the JWT cookie back over the wire and login silently fails — same class of bug as the cross-origin cookie issue we hit in dev. Setting `COOKIE_SECURE=true` in the production `.env` (Phase 3) enables it.
 
 ---
 
@@ -79,7 +63,7 @@ JWT_EXPIRY_DAYS=7
 COOKIE_SECURE=true
 ```
 
-Set `COOKIE_SECURE=true` **only after** the Phase 0 code change has shipped to git and been pulled onto the droplet. If you set it before the code is ready, the backend ignores it harmlessly and cookies are still insecure — so it's safe, just not meaningful.
+`COOKIE_SECURE=true` activates the Secure flag; the code that reads it is already in `main` (see Phase 0).
 
 ## Phase 4 — Migrations + first smoke test
 
