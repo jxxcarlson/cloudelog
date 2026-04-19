@@ -2,6 +2,12 @@
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Project isolation: ignore any inherited DATABASE_URL from the shell so we
+# can't accidentally apply migrations to another project's DB. The project's
+# .env (if present) or the default below are the only sources.
+unset DATABASE_URL
+
 [ -f "$ROOT/.env" ] && export $(grep -v '^#' "$ROOT/.env" | xargs)
 
 ACTION="${1:-up}"

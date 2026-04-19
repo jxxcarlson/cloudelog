@@ -2,6 +2,12 @@
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Project isolation: ignore any inherited DATABASE_URL/JWT_* from the shell
+# so we can't accidentally run the backend against another project's DB.
+# The project's .env (if present) or the defaults below are the only sources.
+unset DATABASE_URL JWT_SECRET JWT_EXPIRY_DAYS
+
 [ -f "$ROOT/.env" ] && export $(grep -v '^#' "$ROOT/.env" | xargs)
 
 : "${DATABASE_URL:=postgres://localhost/cloudelog_dev?sslmode=disable}"
