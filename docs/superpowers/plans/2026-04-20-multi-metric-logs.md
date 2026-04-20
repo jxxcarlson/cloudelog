@@ -934,9 +934,34 @@ Switch the API's request/response types to carry arrays of metrics and values. A
 **Files:**
 - Modify: `backend/src/Api/RequestTypes.hs`
 - Modify: `backend/src/Db/Entry.hs` (swap element-patch for full-array overwrite)
-- Modify: `backend/src/Handler/Logs.hs` (un-adapt — send arrays through)
+- Modify: `backend/src/Handler/Logs.hs` (un-adapt — send arrays through; wrap updateLog in a serializable tx)
 - Modify: `backend/src/Handler/Entries.hs` (un-adapt — send arrays through)
-- Modify: `backend/test-api.sh`
+- Modify: `backend/test-api.sh` (wire format changes + drop accumulate-on-conflict assertions)
+- Create: `backend/dbmate/migrations/005_entries_array_shape_constraints.sql` (new CHECK constraints on `entries`)
+
+- [ ] **Step 0: New migration `005_entries_array_shape_constraints.sql`.**
+
+Task 1 preserved accumulate semantics on `upsertEntry`'s `ON CONFLICT` — this step (part of Task 2) swaps to overwrite, but first adds the missing DB-level invariants that Task 1's code review flagged: entries' `quantities` and `descriptions` must be same-length and nonempty, matching the `logs.metric_*` invariants.
+
+Create `backend/dbmate/migrations/005_entries_array_shape_constraints.sql`:
+
+```sql
+-- migrate:up
+
+ALTER TABLE entries
+  ADD CONSTRAINT entries_values_same_length
+    CHECK (cardinality(quantities) = cardinality(descriptions)),
+  ADD CONSTRAINT entries_values_nonempty
+    CHECK (cardinality(quantities) >= 1);
+
+-- migrate:down
+
+ALTER TABLE entries
+  DROP CONSTRAINT entries_values_nonempty,
+  DROP CONSTRAINT entries_values_same_length;
+```
+
+Apply via `./run migrate up`. Confirm `./run migrate status` shows `Applied: 5`.
 
 - [ ] **Step 1: Replace the log-facing types in `Api.RequestTypes`.**
 
@@ -1171,51 +1196,57 @@ validateMetrics ms
 
 Import `Data.Int (Int32)` if not already present.
 
-- [ ] **Step 6: Rewrite `Handler.Logs.updateLogHandler` to enforce the spec's rename-vs-structural rule.**
+- [ ] **Step 6: Rewrite `Handler.Logs.updateLogHandler` to enforce the rename-vs-structural rule inside one serializable transaction.**
 
-Replace the body with:
+Because this task makes metric structure user-facing, the count-entries read and the update must happen atomically (otherwise a concurrent `POST /api/logs/:id/entries` can sneak an entry between the two reads). Wrap the whole flow in `Tx.Serializable Tx.Write`:
 
 ```haskell
 updateLogHandler :: AuthResult AuthUser -> Text -> UpdateLogRequest -> AppM LogResponse
 updateLogHandler auth lid UpdateLogRequest{..} = do
   uid <- requireUser auth
   validateName ulrName
+  -- Validate metrics shape outside the tx so we can 400 without a DB round-trip.
+  case ulrMetrics of
+    Just ms -> validateMetrics ms
+    Nothing -> pure ()
   pool <- asks envDbPool
 
-  rExisting <- liftIO $ Pool.use pool $ Session.statement (lid, uid) DbLog.getLog
-  existing <- case rExisting of
-    Left _         -> throwError $ appErrorToServantErr (Internal "database error")
-    Right Nothing  -> throwError $ appErrorToServantErr NotFound
-    Right (Just l) -> pure l
+  result <- liftIO $ Pool.use pool $
+    Tx.transaction Tx.Serializable Tx.Write $ do
+      mExisting <- Tx.statement (lid, uid) DbLog.getLog
+      case mExisting of
+        Nothing       -> pure (Left NotFound)
+        Just existing -> do
+          case ulrMetrics of
+            Nothing ->
+              applyUpdate existing (logMetricNames existing) (logMetricUnits existing)
+            Just ms -> do
+              let normed     = map normalizeMetric ms
+                  incomingNm = V.fromList (map msName normed)
+                  incomingUn = V.fromList (map msUnit normed)
+                  unitsMatch = incomingUn == logMetricUnits existing
+              if unitsMatch
+                then applyUpdate existing incomingNm incomingUn
+                else do
+                  count <- Tx.statement lid DbLog.countLogEntries
+                  if count == 0
+                    then applyUpdate existing incomingNm incomingUn
+                    else pure (Left (BadRequest "Cannot change metric structure of a log that has entries"))
 
-  (newNames, newUnits) <- case ulrMetrics of
-    Nothing -> pure (logMetricNames existing, logMetricUnits existing)
-    Just ms -> do
-      validateMetrics ms
-      let normed      = map normalizeMetric ms
-          incomingNm  = V.fromList (map msName normed)
-          incomingUn  = V.fromList (map msUnit normed)
-          unitsMatch  = incomingUn == logMetricUnits existing
-      unless unitsMatch $ do
-        rCount <- liftIO $ Pool.use pool $ Session.statement lid DbLog.countLogEntries
-        case rCount of
-          Left _  -> throwError $ appErrorToServantErr (Internal "database error")
-          Right 0 -> pure ()
-          Right _ -> throwError $ appErrorToServantErr
-                       (BadRequest "Cannot change metric structure of a log that has entries")
-      pure (incomingNm, incomingUn)
-
-  r <- liftIO $ Pool.use pool $
-         Session.statement
-           (lid, uid, ulrName, ulrDescription, newNames, newUnits)
-           DbLog.updateLog
-  case r of
-    Left _         -> throwError $ appErrorToServantErr (Internal "database error")
-    Right Nothing  -> throwError $ appErrorToServantErr NotFound
-    Right (Just l) -> pure (toLogResponse l)
+  case result of
+    Left _usageErr              -> throwError $ appErrorToServantErr (Internal "database error")
+    Right (Left e)              -> throwError $ appErrorToServantErr e
+    Right (Right Nothing)       -> throwError $ appErrorToServantErr NotFound
+    Right (Right (Just l))      -> pure (toLogResponse l)
+  where
+    applyUpdate _ newNames newUnits = do
+      mUpdated <- Tx.statement
+                    (lid, uid, ulrName, ulrDescription, newNames, newUnits)
+                    DbLog.updateLog
+      pure (Right mUpdated)
 ```
 
-The `unitsMatch` comparison is the rename-vs-structural gate: if the units vector is elementwise identical (same length, same strings, same order), only names changed — always allowed. Otherwise structural, requires empty log.
+The `unitsMatch` comparison is the rename-vs-structural gate: if the units vector is elementwise identical, only names changed — always allowed. Otherwise structural, requires an empty log, now checked atomically with the update inside a single serializable transaction.
 
 - [ ] **Step 7: Rewrite `Handler.Entries.postEntryHandler` to consume a values array.**
 
@@ -1380,6 +1411,25 @@ Apply the same rewrite to every other log-create call in the script. The Python 
 ```
 
 **Entry response reads** — any `.quantity` or `.description` python lookup on an entry becomes `.values[0].quantity` / `.values[0].description`.
+
+**Remove the accumulate-on-conflict test cases.** The spec's new behavior is overwrite-on-conflict ("re-record today's numbers"), not accumulate. Delete the two sections:
+- `say "Same-day accumulate (post 2026-04-13 again, +15)"` and its `✓` block.
+- `say "Back-fill accumulate onto a skip (post 2026-04-11, +20)"` and its `✓` block.
+
+Replace them with a single **overwrite** test that confirms the new semantic:
+
+```bash
+say "Same-day overwrite (post $DATE again, qty=7)"
+curl -sS -b "$COOKIES" -X POST "$BASE/api/logs/$LOG_ID/entries" \
+  -H "Content-Type: application/json" \
+  -d "{\"entryDate\":\"$DATE\",\"values\":[{\"quantity\":7,\"description\":\"\"}]}" \
+  > /dev/null
+GOT_Q=$(curl -sS -b "$COOKIES" "$BASE/api/logs/$LOG_ID" \
+  | python3 -c "import sys,json; es=json.load(sys.stdin)['entries']; print(next(e for e in es if e['entryDate']=='$DATE')['values'][0]['quantity'])")
+[ "$GOT_Q" = "7" ] || [ "$GOT_Q" = "7.0" ] && ok "same-day POST overwrites to 7" || fail "expected 7, got $GOT_Q"
+```
+
+(Adapt variable names to whichever log/date the prior test section established.)
 
 The streak-tracking section's `post_entry` helper (`backend/test-api.sh:153`) becomes:
 
