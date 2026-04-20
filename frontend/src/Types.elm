@@ -3,6 +3,7 @@ module Types exposing
     , Log
     , LogSummary
     , Entry
+    , StreakStats
     , Unit(..)
     , unitToString
     , unitFromString
@@ -46,6 +47,13 @@ type alias Entry =
     , date : Date
     , quantity : Float
     , description : String
+    }
+
+
+type alias StreakStats =
+    { current : Int
+    , average : Maybe Float
+    , longest : Int
     }
 
 

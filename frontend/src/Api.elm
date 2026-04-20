@@ -16,6 +16,7 @@ module Api exposing
     , logDecoder
     , logSummaryDecoder
     , entryDecoder
+    , streakStatsDecoder
     )
 
 import Date exposing (Date)
@@ -24,7 +25,7 @@ import Iso8601
 import Json.Decode as D
 import Json.Encode as E
 import Time exposing (Posix)
-import Types exposing (Entry, Log, LogSummary, Unit(..), User, unitFromString, unitToString)
+import Types exposing (Entry, Log, LogSummary, StreakStats, Unit(..), User, unitFromString, unitToString)
 
 
 apiBase : String
@@ -189,7 +190,10 @@ createLog { name, unit, description, startDate } toMsg =
         }
 
 
-getLog : String -> (Result Http.Error { log : Log, entries : List Entry } -> msg) -> Cmd msg
+getLog :
+    String
+    -> (Result Http.Error { log : Log, entries : List Entry, streakStats : StreakStats } -> msg)
+    -> Cmd msg
 getLog logId toMsg =
     cookieRequest
         { method = "GET"
@@ -197,9 +201,10 @@ getLog logId toMsg =
         , body = Http.emptyBody
         , expect =
             Http.expectJson toMsg
-                (D.map2 (\l es -> { log = l, entries = es })
+                (D.map3 (\l es ss -> { log = l, entries = es, streakStats = ss })
                     (D.field "log" logDecoder)
                     (D.field "entries" (D.list entryDecoder))
+                    (D.field "streakStats" streakStatsDecoder)
                 )
         }
 
@@ -348,6 +353,14 @@ entryDecoder =
         (D.field "entryDate" dateDecoder)
         (D.field "quantity" D.float)
         (D.field "description" D.string)
+
+
+streakStatsDecoder : D.Decoder StreakStats
+streakStatsDecoder =
+    D.map3 StreakStats
+        (D.field "current" D.int)
+        (D.field "average" (D.nullable D.float))
+        (D.field "longest" D.int)
 
 
 dateDecoder : D.Decoder Date
