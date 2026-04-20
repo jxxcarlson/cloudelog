@@ -100,24 +100,24 @@ getLogHandler :: AuthResult AuthUser -> Text -> AppM LogDetailResponse
 getLogHandler auth lid = do
   uid  <- requireUser auth
   pool <- asks envDbPool
-  rLog <- liftIO $ Pool.use pool $ Session.statement (lid, uid) DbLog.getLog
-  case rLog of
+  result <- liftIO $ Pool.use pool $
+    Tx.transaction Tx.RepeatableRead Tx.Read $ do
+      mLog <- Tx.statement (lid, uid) DbLog.getLog
+      case mLog of
+        Nothing -> pure Nothing
+        Just l  -> do
+          es    <- Tx.statement lid DbEntry.listEntriesByLog
+          stats <- Tx.statement lid DbStreak.selectStreakStats
+          pure (Just (l, es, stats))
+  case result of
     Left _         -> throwError $ appErrorToServantErr (Internal "database error")
     Right Nothing  -> throwError $ appErrorToServantErr NotFound
-    Right (Just l) -> do
-      rEntries <- liftIO $ Pool.use pool $ Session.statement lid DbEntry.listEntriesByLog
-      entries <- case rEntries of
-        Left _  -> throwError $ appErrorToServantErr (Internal "database error")
-        Right v -> pure (V.toList v)
-      rStats <- liftIO $ Pool.use pool $ Session.statement lid DbStreak.selectStreakStats
-      stats <- case rStats of
-        Left _  -> throwError $ appErrorToServantErr (Internal "database error")
-        Right s -> pure s
+    Right (Just (l, es, stats)) -> do
       -- Fire-and-forget: update current_log_id. Don't fail the request on error.
       _ <- liftIO $ Pool.use pool $ Session.statement (uid, lid) DbUser.setCurrentLogId
       pure LogDetailResponse
         { ldrLog         = toLogResponse l
-        , ldrEntries     = map toEntryResponse entries
+        , ldrEntries     = map toEntryResponse (V.toList es)
         , ldrStreakStats = toStreakStats stats
         }
   where
