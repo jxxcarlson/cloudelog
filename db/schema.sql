@@ -59,6 +59,39 @@ CREATE TABLE public.schema_migrations (
 
 
 --
+-- Name: streaks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.streaks (
+    id integer NOT NULL,
+    log_id text NOT NULL,
+    start_date date NOT NULL,
+    length integer NOT NULL,
+    CONSTRAINT streaks_length_check CHECK ((length > 0))
+);
+
+
+--
+-- Name: streaks_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.streaks_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: streaks_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.streaks_id_seq OWNED BY public.streaks.id;
+
+
+--
 -- Name: users; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -70,6 +103,13 @@ CREATE TABLE public.users (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+
+--
+-- Name: streaks id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.streaks ALTER COLUMN id SET DEFAULT nextval('public.streaks_id_seq'::regclass);
 
 
 --
@@ -105,6 +145,22 @@ ALTER TABLE ONLY public.schema_migrations
 
 
 --
+-- Name: streaks streaks_log_id_start_date_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.streaks
+    ADD CONSTRAINT streaks_log_id_start_date_key UNIQUE (log_id, start_date);
+
+
+--
+-- Name: streaks streaks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.streaks
+    ADD CONSTRAINT streaks_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -135,6 +191,13 @@ CREATE INDEX logs_user_updated_idx ON public.logs USING btree (user_id, updated_
 
 
 --
+-- Name: streaks_log_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX streaks_log_idx ON public.streaks USING btree (log_id);
+
+
+--
 -- Name: entries entries_log_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -148,6 +211,14 @@ ALTER TABLE ONLY public.entries
 
 ALTER TABLE ONLY public.logs
     ADD CONSTRAINT logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: streaks streaks_log_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.streaks
+    ADD CONSTRAINT streaks_log_id_fkey FOREIGN KEY (log_id) REFERENCES public.logs(id) ON DELETE CASCADE;
 
 
 --
@@ -171,4 +242,5 @@ ALTER TABLE ONLY public.users
 
 INSERT INTO public.schema_migrations (version) VALUES
     ('001'),
-    ('002');
+    ('002'),
+    ('003');
