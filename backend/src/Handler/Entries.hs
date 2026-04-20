@@ -63,14 +63,24 @@ postEntryHandler auth lid CreateEntryRequest{..} = do
         Just ownerId
           | ownerId /= uid -> pure (Left Forbidden)
           | otherwise      -> do
+              mCount <- Tx.statement lid DbEntry.getLogMetricCount
               -- Inside the lock, use the preflight values. If the actual
               -- maxDate advanced in the interim, ON CONFLICT DO NOTHING handles it.
               _ <- if null preFillDays
                      then pure ()
-                     else Tx.statement (lid, V.fromList preFillIds, V.fromList preFillDays)
-                                       DbEntry.insertSkipFills
+                     else Tx.statement
+                            ( lid
+                            , V.fromList preFillIds
+                            , V.fromList preFillDays
+                            , mCount
+                            )
+                            DbEntry.insertSkipFills
+              -- Single-metric wire format: build an N-length array by
+              -- padding quantity to position 0 and zeros elsewhere.
+              let qs    = V.generate (fromIntegral mCount) (\i -> if i == 0 then cerQuantity else 0)
+                  descs = V.generate (fromIntegral mCount) (\i -> if i == 0 then desc        else "")
               _entry <- Tx.statement
-                          (newEntryId, lid, cerEntryDate, cerQuantity, desc)
+                          (newEntryId, lid, cerEntryDate, qs, descs)
                           DbEntry.upsertEntry
               recomputeStreaksTx lid
               allEntries <- Tx.statement lid DbEntry.listEntriesByLog
@@ -132,10 +142,11 @@ generateUuids n
 --   as any entry mutation so the streaks table stays in lockstep with entries.
 recomputeStreaksTx :: LogId -> Tx.Transaction ()
 recomputeStreaksTx lid = do
-  pairs <- V.toList <$> Tx.statement lid DbStreak.selectEntryDateQuantity
-  let streaks    = Streak.computeStreaks pairs
-      dates      = V.fromList (map fst streaks)
+  rows <- V.toList <$> Tx.statement lid DbStreak.selectEntryDateQuantity
+  let pairs      = map (\(d, qs) -> (d, V.toList qs)) rows
+      streaks    = Streak.computeStreaks pairs
       toInt32 n  = fromIntegral n :: Int32
+      dates      = V.fromList (map fst streaks)
       lengths    = V.fromList (map (toInt32 . snd) streaks)
   Tx.statement lid DbStreak.deleteStreaksForLog
   if V.null dates

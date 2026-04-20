@@ -12,33 +12,36 @@ import           Data.Int                   (Int64)
 import           Data.Text                  (Text)
 import           Data.Time.Calendar         (Day)
 import           Data.Vector                (Vector)
+import qualified Data.Vector                as V
 import qualified Hasql.Decoders             as D
 import qualified Hasql.Encoders             as E
 import           Hasql.Statement            (Statement(..))
 import           Types.Common               (LogId, UserId)
 import           Types.Log                  (Log(..))
 
--- | INSERT a log. Params: (id, user_id, name, description, unit, start_date).
-insertLog :: Statement (LogId, UserId, Text, Text, Text, Day) Log
+-- | INSERT a log. Params: (id, user_id, name, description, metric_names, metric_units, start_date).
+insertLog
+  :: Statement (LogId, UserId, Text, Text, Vector Text, Vector Text, Day) Log
 insertLog = Statement sql encoder (D.singleRow logRow) True
   where
     sql =
-      "INSERT INTO logs (id, user_id, name, description, unit, start_date) \
-      \VALUES ($1, $2, $3, $4, $5, $6) \
-      \RETURNING id, user_id, name, description, unit, start_date, created_at, updated_at"
+      "INSERT INTO logs (id, user_id, name, description, metric_names, metric_units, start_date) \
+      \VALUES ($1, $2, $3, $4, $5, $6, $7) \
+      \RETURNING id, user_id, name, description, metric_names, metric_units, start_date, created_at, updated_at"
     encoder =
-      ((\(a,_,_,_,_,_) -> a) >$< E.param (E.nonNullable E.text)) <>
-      ((\(_,b,_,_,_,_) -> b) >$< E.param (E.nonNullable E.text)) <>
-      ((\(_,_,c,_,_,_) -> c) >$< E.param (E.nonNullable E.text)) <>
-      ((\(_,_,_,d,_,_) -> d) >$< E.param (E.nonNullable E.text)) <>
-      ((\(_,_,_,_,e,_) -> e) >$< E.param (E.nonNullable E.text)) <>
-      ((\(_,_,_,_,_,f) -> f) >$< E.param (E.nonNullable E.date))
+      ((\(a,_,_,_,_,_,_) -> a) >$< E.param (E.nonNullable E.text)) <>
+      ((\(_,b,_,_,_,_,_) -> b) >$< E.param (E.nonNullable E.text)) <>
+      ((\(_,_,c,_,_,_,_) -> c) >$< E.param (E.nonNullable E.text)) <>
+      ((\(_,_,_,d,_,_,_) -> d) >$< E.param (E.nonNullable E.text)) <>
+      ((\(_,_,_,_,e,_,_) -> e) >$< E.param (E.nonNullable textArrayE)) <>
+      ((\(_,_,_,_,_,f,_) -> f) >$< E.param (E.nonNullable textArrayE)) <>
+      ((\(_,_,_,_,_,_,g) -> g) >$< E.param (E.nonNullable E.date))
 
 listLogsByUser :: Statement UserId (Vector Log)
 listLogsByUser = Statement sql encoder (D.rowVector logRow) True
   where
     sql =
-      "SELECT id, user_id, name, description, unit, start_date, created_at, updated_at \
+      "SELECT id, user_id, name, description, metric_names, metric_units, start_date, created_at, updated_at \
       \FROM logs WHERE user_id = $1 ORDER BY updated_at DESC"
     encoder = E.param (E.nonNullable E.text)
 
@@ -47,29 +50,32 @@ getLog :: Statement (LogId, UserId) (Maybe Log)
 getLog = Statement sql encoder (D.rowMaybe logRow) True
   where
     sql =
-      "SELECT id, user_id, name, description, unit, start_date, created_at, updated_at \
+      "SELECT id, user_id, name, description, metric_names, metric_units, start_date, created_at, updated_at \
       \FROM logs WHERE id = $1 AND user_id = $2"
     encoder =
       (fst >$< E.param (E.nonNullable E.text)) <>
       (snd >$< E.param (E.nonNullable E.text))
 
--- | UPDATE name, description, and unit. Caller must pre-validate unit immutability.
---   start_date is intentionally NOT updated — it is immutable after creation.
---   Params: (id, user_id, name, description, unit).
-updateLog :: Statement (LogId, UserId, Text, Text, Text) (Maybe Log)
+-- | UPDATE name, description, and metric arrays. Caller must pre-validate
+--   that structural changes only happen on empty logs. start_date is
+--   intentionally NOT updated.
+--   Params: (id, user_id, name, description, metric_names, metric_units).
+updateLog
+  :: Statement (LogId, UserId, Text, Text, Vector Text, Vector Text) (Maybe Log)
 updateLog = Statement sql encoder (D.rowMaybe logRow) True
   where
     sql =
       "UPDATE logs \
-      \SET name = $3, description = $4, unit = $5, updated_at = now() \
+      \SET name = $3, description = $4, metric_names = $5, metric_units = $6, updated_at = now() \
       \WHERE id = $1 AND user_id = $2 \
-      \RETURNING id, user_id, name, description, unit, start_date, created_at, updated_at"
+      \RETURNING id, user_id, name, description, metric_names, metric_units, start_date, created_at, updated_at"
     encoder =
-      ((\(a,_,_,_,_) -> a) >$< E.param (E.nonNullable E.text)) <>
-      ((\(_,b,_,_,_) -> b) >$< E.param (E.nonNullable E.text)) <>
-      ((\(_,_,c,_,_) -> c) >$< E.param (E.nonNullable E.text)) <>
-      ((\(_,_,_,d,_) -> d) >$< E.param (E.nonNullable E.text)) <>
-      ((\(_,_,_,_,e) -> e) >$< E.param (E.nonNullable E.text))
+      ((\(a,_,_,_,_,_) -> a) >$< E.param (E.nonNullable E.text)) <>
+      ((\(_,b,_,_,_,_) -> b) >$< E.param (E.nonNullable E.text)) <>
+      ((\(_,_,c,_,_,_) -> c) >$< E.param (E.nonNullable E.text)) <>
+      ((\(_,_,_,d,_,_) -> d) >$< E.param (E.nonNullable E.text)) <>
+      ((\(_,_,_,_,e,_) -> e) >$< E.param (E.nonNullable textArrayE)) <>
+      ((\(_,_,_,_,_,f) -> f) >$< E.param (E.nonNullable textArrayE))
 
 deleteLog :: Statement (LogId, UserId) Int64
 deleteLog = Statement sql encoder D.rowsAffected True
@@ -87,14 +93,23 @@ countLogEntries = Statement sql encoder decoder True
     encoder = E.param (E.nonNullable E.text)
     decoder = D.singleRow (D.column (D.nonNullable D.int8))
 
+-- Reusable array encoder for TEXT[] parameters.
+textArrayE :: E.Value (Vector Text)
+textArrayE = E.array (E.dimension foldl (E.element (E.nonNullable E.text)))
+
+-- Reusable array decoder for TEXT[] columns.
+textArrayD :: D.Value (Vector Text)
+textArrayD = D.array (D.dimension V.replicateM (D.element (D.nonNullable D.text)))
+
 logRow :: D.Row Log
 logRow =
   Log
-    <$> D.column (D.nonNullable D.text)         -- id
-    <*> D.column (D.nonNullable D.text)         -- user_id
-    <*> D.column (D.nonNullable D.text)         -- name
-    <*> D.column (D.nonNullable D.text)         -- description
-    <*> D.column (D.nonNullable D.text)         -- unit
-    <*> D.column (D.nonNullable D.date)         -- start_date
-    <*> D.column (D.nonNullable D.timestamptz)  -- created_at
-    <*> D.column (D.nonNullable D.timestamptz)  -- updated_at
+    <$> D.column (D.nonNullable D.text)              -- id
+    <*> D.column (D.nonNullable D.text)              -- user_id
+    <*> D.column (D.nonNullable D.text)              -- name
+    <*> D.column (D.nonNullable D.text)              -- description
+    <*> D.column (D.nonNullable textArrayD)          -- metric_names
+    <*> D.column (D.nonNullable textArrayD)          -- metric_units
+    <*> D.column (D.nonNullable D.date)              -- start_date
+    <*> D.column (D.nonNullable D.timestamptz)       -- created_at
+    <*> D.column (D.nonNullable D.timestamptz)       -- updated_at

@@ -26,10 +26,10 @@ CREATE TABLE public.entries (
     id text NOT NULL,
     log_id text NOT NULL,
     entry_date date NOT NULL,
-    quantity double precision DEFAULT 0 NOT NULL,
-    description text DEFAULT ''::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    quantities double precision[] DEFAULT ARRAY[]::double precision[] NOT NULL,
+    descriptions text[] DEFAULT ARRAY[]::text[] NOT NULL
 );
 
 
@@ -42,10 +42,13 @@ CREATE TABLE public.logs (
     user_id text NOT NULL,
     name text NOT NULL,
     description text DEFAULT ''::text NOT NULL,
-    unit text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    start_date date DEFAULT CURRENT_DATE NOT NULL
+    start_date date DEFAULT CURRENT_DATE NOT NULL,
+    metric_names text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    metric_units text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    CONSTRAINT logs_metrics_nonempty CHECK ((cardinality(metric_names) >= 1)),
+    CONSTRAINT logs_metrics_same_length CHECK ((cardinality(metric_names) = cardinality(metric_units)))
 );
 
 
@@ -236,4 +239,5 @@ ALTER TABLE ONLY public.users
 INSERT INTO public.schema_migrations (version) VALUES
     ('001'),
     ('002'),
-    ('003');
+    ('003'),
+    ('004');

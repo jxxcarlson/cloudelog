@@ -19,6 +19,7 @@ import           Control.Monad           (unless, when)
 import           Control.Monad.IO.Class  (liftIO)
 import           Control.Monad.Reader    (asks)
 import           Control.Monad.Except    (throwError)
+import           Data.Int                (Int32)
 import           Data.Maybe              (fromMaybe)
 import           Data.Text               (Text)
 import qualified Data.Text               as T
@@ -78,11 +79,18 @@ createLogHandler auth CreateLogRequest{..} = do
   result <- liftIO $ Pool.use pool $
     Tx.transaction Tx.Serializable Tx.Write $ do
       l <- Tx.statement
-             (lid, uid, clrName, desc, normalizeUnit clrUnit, startDate)
+             ( lid
+             , uid
+             , clrName
+             , desc
+             , V.singleton (normalizeUnit clrUnit)  -- metric_names = [unit]
+             , V.singleton (normalizeUnit clrUnit)  -- metric_units = [unit]
+             , startDate
+             )
              DbLog.insertLog
       unless (null fillDays) $
         Tx.statement
-          (lid, V.fromList fillIds, V.fromList fillDays)
+          (lid, V.fromList fillIds, V.fromList fillDays, 1 :: Int32)
           DbEntry.insertSkipFills
       pure l
   case result of
@@ -143,12 +151,16 @@ updateLogHandler auth lid UpdateLogRequest{..} = do
     Right (Just l) -> pure l
 
   -- If caller sent a new unit, enforce "only when no entries".
+  let existingUnit =
+        if V.null (logMetricUnits existing)
+          then Nothing
+          else Just (V.head (logMetricUnits existing))
   newUnit <- case ulrUnit of
-    Nothing -> pure (logUnit existing)
+    Nothing -> pure (fromMaybe "" existingUnit)
     Just u  -> do
       validateUnit u
       let u' = normalizeUnit u
-      when (u' /= logUnit existing) $ do
+      when (Just u' /= existingUnit) $ do
         rCount <- liftIO $ Pool.use pool $ Session.statement lid DbLog.countLogEntries
         case rCount of
           Left _  -> throwError $ appErrorToServantErr (Internal "database error")
@@ -158,7 +170,9 @@ updateLogHandler auth lid UpdateLogRequest{..} = do
       pure u'
 
   r <- liftIO $ Pool.use pool $
-         Session.statement (lid, uid, ulrName, ulrDescription, newUnit) DbLog.updateLog
+         Session.statement
+           (lid, uid, ulrName, ulrDescription, V.singleton newUnit, V.singleton newUnit)
+           DbLog.updateLog
   case r of
     Left _         -> throwError $ appErrorToServantErr (Internal "database error")
     Right Nothing  -> throwError $ appErrorToServantErr NotFound
@@ -183,7 +197,7 @@ toLogResponse :: Log -> LogResponse
 toLogResponse l = LogResponse
   { logrId          = logId l
   , logrName        = logName l
-  , logrUnit        = logUnit l
+  , logrUnit        = if V.null (logMetricUnits l) then "" else V.head (logMetricUnits l)
   , logrDescription = logDescription l
   , logrStartDate   = logStartDate l
   , logrCreatedAt   = logCreatedAt l
@@ -195,8 +209,8 @@ toEntryResponse e = EntryResponse
   { erId          = entId e
   , erLogId       = entLogId e
   , erEntryDate   = entDate e
-  , erQuantity    = entQuantity e
-  , erDescription = entDescription e
+  , erQuantity    = if V.null (entQuantities e)   then 0  else V.head (entQuantities e)
+  , erDescription = if V.null (entDescriptions e) then "" else V.head (entDescriptions e)
   , erCreatedAt   = entCreatedAt e
   , erUpdatedAt   = entUpdatedAt e
   }

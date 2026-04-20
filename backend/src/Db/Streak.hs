@@ -10,23 +10,27 @@ import           Data.Functor.Contravariant ((>$<))
 import           Data.Int                   (Int32)
 import           Data.Time.Calendar         (Day)
 import           Data.Vector                (Vector)
+import qualified Data.Vector                as V
 import qualified Hasql.Decoders             as D
 import qualified Hasql.Encoders             as E
 import           Hasql.Statement            (Statement(..))
 import           Types.Common               (LogId)
 
--- | All entries for a log, returned as (entry_date, quantity) in ascending date order.
+-- | All entries for a log, returned as (entry_date, quantities) in ascending date order.
 --   Feeds Service.Streak.computeStreaks.
-selectEntryDateQuantity :: Statement LogId (Vector (Day, Double))
+selectEntryDateQuantity :: Statement LogId (Vector (Day, Vector Double))
 selectEntryDateQuantity = Statement sql encoder decoder True
   where
     sql =
-      "SELECT entry_date, quantity FROM entries \
+      "SELECT entry_date, quantities FROM entries \
       \WHERE log_id = $1 ORDER BY entry_date ASC"
     encoder = E.param (E.nonNullable E.text)
     decoder = D.rowVector $
       (,) <$> D.column (D.nonNullable D.date)
-          <*> D.column (D.nonNullable D.float8)
+          <*> D.column (D.nonNullable doubleArrayD)
+
+doubleArrayD :: D.Value (Vector Double)
+doubleArrayD = D.array (D.dimension V.replicateM (D.element (D.nonNullable D.float8)))
 
 deleteStreaksForLog :: Statement LogId ()
 deleteStreaksForLog = Statement sql encoder D.noResult True

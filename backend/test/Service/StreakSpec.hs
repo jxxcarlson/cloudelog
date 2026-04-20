@@ -12,30 +12,30 @@ spec = describe "Service.Streak.computeStreaks" $ do
 
   it "all-zero entries: no streaks" $
     Streak.computeStreaks
-      [ (fromGregorian 2026 4 1, 0)
-      , (fromGregorian 2026 4 2, 0)
-      , (fromGregorian 2026 4 3, 0)
+      [ (fromGregorian 2026 4 1, [0])
+      , (fromGregorian 2026 4 2, [0])
+      , (fromGregorian 2026 4 3, [0])
       ] `shouldBe` []
 
   it "single qty>0 entry: one streak of length 1" $
-    Streak.computeStreaks [(fromGregorian 2026 4 1, 3.5)]
+    Streak.computeStreaks [(fromGregorian 2026 4 1, [3.5])]
       `shouldBe` [(fromGregorian 2026 4 1, 1)]
 
   it "uninterrupted 5-day run: one streak of length 5" $
     Streak.computeStreaks
-      [ (fromGregorian 2026 4 1, 1)
-      , (fromGregorian 2026 4 2, 1)
-      , (fromGregorian 2026 4 3, 1)
-      , (fromGregorian 2026 4 4, 1)
-      , (fromGregorian 2026 4 5, 1)
+      [ (fromGregorian 2026 4 1, [1])
+      , (fromGregorian 2026 4 2, [1])
+      , (fromGregorian 2026 4 3, [1])
+      , (fromGregorian 2026 4 4, [1])
+      , (fromGregorian 2026 4 5, [1])
       ] `shouldBe` [(fromGregorian 2026 4 1, 5)]
 
-  it "run broken by quantity=0: two streaks" $
+  it "run broken by all-zero day: two streaks" $
     Streak.computeStreaks
-      [ (fromGregorian 2026 4 1, 1)
-      , (fromGregorian 2026 4 2, 1)
-      , (fromGregorian 2026 4 3, 0)
-      , (fromGregorian 2026 4 4, 1)
+      [ (fromGregorian 2026 4 1, [1])
+      , (fromGregorian 2026 4 2, [1])
+      , (fromGregorian 2026 4 3, [0])
+      , (fromGregorian 2026 4 4, [1])
       ] `shouldBe`
         [ (fromGregorian 2026 4 1, 2)
         , (fromGregorian 2026 4 4, 1)
@@ -43,9 +43,9 @@ spec = describe "Service.Streak.computeStreaks" $ do
 
   it "run with a calendar gap (missing date): two streaks" $
     Streak.computeStreaks
-      [ (fromGregorian 2026 4 1, 1)
-      , (fromGregorian 2026 4 2, 1)
-      , (fromGregorian 2026 4 5, 1)
+      [ (fromGregorian 2026 4 1, [1])
+      , (fromGregorian 2026 4 2, [1])
+      , (fromGregorian 2026 4 5, [1])
       ] `shouldBe`
         [ (fromGregorian 2026 4 1, 2)
         , (fromGregorian 2026 4 5, 1)
@@ -53,11 +53,11 @@ spec = describe "Service.Streak.computeStreaks" $ do
 
   it "alternating qty>0 / qty=0: many length-1 streaks" $
     Streak.computeStreaks
-      [ (fromGregorian 2026 4 1, 1)
-      , (fromGregorian 2026 4 2, 0)
-      , (fromGregorian 2026 4 3, 1)
-      , (fromGregorian 2026 4 4, 0)
-      , (fromGregorian 2026 4 5, 1)
+      [ (fromGregorian 2026 4 1, [1])
+      , (fromGregorian 2026 4 2, [0])
+      , (fromGregorian 2026 4 3, [1])
+      , (fromGregorian 2026 4 4, [0])
+      , (fromGregorian 2026 4 5, [1])
       ] `shouldBe`
         [ (fromGregorian 2026 4 1, 1)
         , (fromGregorian 2026 4 3, 1)
@@ -65,12 +65,22 @@ spec = describe "Service.Streak.computeStreaks" $ do
         ]
 
   it "negative quantity: treated like zero (breaks the streak)" $
-    -- Guards against accidental regressions if handler validation ever misses a negative.
     Streak.computeStreaks
-      [ (fromGregorian 2026 4 1, 1)
-      , (fromGregorian 2026 4 2, -1)
-      , (fromGregorian 2026 4 3, 1)
+      [ (fromGregorian 2026 4 1, [1])
+      , (fromGregorian 2026 4 2, [-1])
+      , (fromGregorian 2026 4 3, [1])
       ] `shouldBe`
         [ (fromGregorian 2026 4 1, 1)
         , (fromGregorian 2026 4 3, 1)
+        ]
+
+  it "any-metric-positive keeps streak alive: [0, 1] is active" $
+    Streak.computeStreaks
+      [ (fromGregorian 2026 4 1, [1, 0])
+      , (fromGregorian 2026 4 2, [0, 1])
+      , (fromGregorian 2026 4 3, [0, 0])
+      , (fromGregorian 2026 4 4, [2, 3])
+      ] `shouldBe`
+        [ (fromGregorian 2026 4 1, 2)
+        , (fromGregorian 2026 4 4, 1)
         ]
