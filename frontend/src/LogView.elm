@@ -6,7 +6,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
-import Types exposing (Entry, Log, Unit(..), unitToString)
+import Types exposing (Entry, Log, StreakStats, Unit(..), unitToString)
 
 
 
@@ -78,6 +78,7 @@ type alias Model =
     , today : Date
     , log : Maybe Log
     , entries : List Entry
+    , streakStats : Maybe StreakStats
     , loading : Bool
     , error : Maybe String
     , newQty : String
@@ -94,6 +95,7 @@ init logId today =
       , today = today
       , log = Nothing
       , entries = []
+      , streakStats = Nothing
       , loading = True
       , error = Nothing
       , newQty = ""
@@ -107,7 +109,7 @@ init logId today =
 
 
 type Msg
-    = LogFetched (Result Http.Error { log : Log, entries : List Entry })
+    = LogFetched (Result Http.Error { log : Log, entries : List Entry, streakStats : StreakStats })
     | QtyChanged String
     | DescChanged String
     | AddEntry
@@ -134,8 +136,14 @@ type OutMsg
 update : Msg -> Model -> ( Model, Cmd Msg, OutMsg )
 update msg model =
     case msg of
-        LogFetched (Ok { log, entries }) ->
-            ( { model | log = Just log, entries = entries, loading = False, error = Nothing }
+        LogFetched (Ok { log, entries, streakStats }) ->
+            ( { model
+                | log = Just log
+                , entries = entries
+                , streakStats = Just streakStats
+                , loading = False
+                , error = Nothing
+              }
             , Cmd.none
             , NoOp
             )
@@ -338,6 +346,7 @@ view model =
                     , text (" · since " ++ Date.toIsoString log.startDate)
                     ]
                 , viewStats stats
+                , viewStreakStats model.streakStats
                 , viewDescription model.editingDesc log
                 , hr
                     [ style "margin" "0.5rem 0 1rem 0"
@@ -464,6 +473,58 @@ viewStats s =
         , div [] [ text ("Total: " ++ fmt s.total) ]
         , div [] [ text ("Avg: " ++ maybeFmt1 s.average) ]
         ]
+
+
+viewStreakStats : Maybe StreakStats -> Html msg
+viewStreakStats mss =
+    let
+        dash =
+            "—"
+
+        intCell label n =
+            div []
+                [ text
+                    (label
+                        ++ ": "
+                        ++ (if n <= 0 then
+                                dash
+
+                            else
+                                String.fromInt n
+                           )
+                    )
+                ]
+
+        avgCell label ma =
+            div []
+                [ text
+                    (label
+                        ++ ": "
+                        ++ (case ma of
+                                Just a ->
+                                    -- one decimal place, matches Avg in viewStats
+                                    let
+                                        rounded =
+                                            toFloat (round (a * 10)) / 10
+                                    in
+                                    String.fromFloat rounded
+
+                                Nothing ->
+                                    dash
+                           )
+                    )
+                ]
+    in
+    case mss of
+        Nothing ->
+            text ""
+
+        Just ss ->
+            div [ class "stats" ]
+                [ intCell "Current streak" ss.current
+                , avgCell "Avg streak" ss.average
+                , intCell "Longest streak" ss.longest
+                ]
 
 
 viewAddForm : Model -> Html Msg
