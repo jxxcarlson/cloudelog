@@ -455,8 +455,9 @@ recomputeStreaksTx :: LogId -> Tx.Transaction ()
 recomputeStreaksTx lid = do
   pairs <- V.toList <$> Tx.statement lid DbStreak.selectEntryDateQuantity
   let streaks    = Streak.computeStreaks pairs
+      toInt32 n  = fromIntegral n :: Int32
       dates      = V.fromList (map fst streaks)
-      lengths    = V.fromList (map (fromIntegral . snd :: Int -> Int32) streaks)
+      lengths    = V.fromList (map (toInt32 . snd) streaks)
   Tx.statement lid DbStreak.deleteStreaksForLog
   if V.null dates
     then pure ()
