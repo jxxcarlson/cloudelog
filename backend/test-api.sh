@@ -142,6 +142,101 @@ say "Delete log"
 HTTP=$(curl -sS -b "$COOKIES" -o /dev/null -w "%{http_code}" -X DELETE "$BASE/api/logs/$LOG_ID")
 [ "$HTTP" = "204" ] && ok "delete 204" || fail "delete log (got $HTTP)"
 
+say "Streak tracking"
+
+# Fresh log starting today.
+LOG_S=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Streaks","unit":"minutes","description":""}')
+LOG_S_ID=$(echo "$LOG_S" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+
+post_entry() {
+  local date="$1" qty="$2"
+  curl -sS -b "$COOKIES" -X POST "$BASE/api/logs/$LOG_S_ID/entries" \
+    -H "Content-Type: application/json" \
+    -d "{\"entryDate\":\"$date\",\"quantity\":$qty,\"description\":\"\"}" \
+    > /dev/null
+}
+
+get_stats() {
+  curl -sS -b "$COOKIES" "$BASE/api/logs/$LOG_S_ID" \
+    | python3 -c '
+import sys, json
+s = json.load(sys.stdin)["streakStats"]
+cur = s["current"]
+lng = s["longest"]
+avg = "null" if s["average"] is None else "%.1f" % float(s["average"])
+print("%s|%s|%s" % (cur, avg, lng))
+'
+}
+
+# macOS/Linux date helpers already defined earlier in the script; compute 5 days worth.
+if date -u -v-4d +%Y-%m-%d >/dev/null 2>&1; then
+  D0=$(date -u -v-4d +%Y-%m-%d)
+  D1=$(date -u -v-3d +%Y-%m-%d)
+  D2=$(date -u -v-2d +%Y-%m-%d)
+  D3=$(date -u -v-1d +%Y-%m-%d)
+  D4=$TODAY
+else
+  D0=$(date -u -d '4 days ago' +%Y-%m-%d)
+  D1=$(date -u -d '3 days ago' +%Y-%m-%d)
+  D2=$(date -u -d '2 days ago' +%Y-%m-%d)
+  D3=$(date -u -d '1 day ago'  +%Y-%m-%d)
+  D4=$TODAY
+fi
+
+# Three consecutive qty>0 entries: D0, D1, D2.
+post_entry "$D0" 5
+post_entry "$D1" 5
+post_entry "$D2" 5
+
+STATS=$(get_stats)
+[ "$STATS" = "3|3.0|3" ] && ok "three-day streak: current=3, avg=3, longest=3" \
+  || fail "expected 3|3.0|3, got $STATS"
+
+# Post a skip (qty=0) for D3 — most-recent streak length should still read 3
+# (rest-day tolerant: "current" = length of most recent streak, not 0).
+post_entry "$D3" 0
+
+STATS=$(get_stats)
+[ "$STATS" = "3|3.0|3" ] && ok "skip day keeps current=3 (rest-day tolerant)" \
+  || fail "expected 3|3.0|3 after skip, got $STATS"
+
+# Post qty>0 for D4 — a new 1-day streak starts.
+post_entry "$D4" 5
+
+STATS=$(get_stats)
+[ "$STATS" = "1|2.0|3" ] && ok "after new entry: current=1, avg=2, longest=3" \
+  || fail "expected 1|2.0|3, got $STATS"
+
+# Update D3 (the skip) to qty>0 — streaks merge into a single 5-day run.
+D3_ID=$(curl -sS -b "$COOKIES" "$BASE/api/logs/$LOG_S_ID" \
+  | python3 -c "import sys,json; es=json.load(sys.stdin)['entries']; print(next(e for e in es if e['entryDate']=='$D3')['id'])")
+curl -sS -b "$COOKIES" -X PUT "$BASE/api/entries/$D3_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"quantity":5,"description":""}' > /dev/null
+
+STATS=$(get_stats)
+[ "$STATS" = "5|5.0|5" ] && ok "update skip→qty>0 merges streaks: 5|5.0|5" \
+  || fail "expected 5|5.0|5, got $STATS"
+
+# Empty log: a log with no qty>0 entries has current=0, avg=null, longest=0.
+LOG_E=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Empty","unit":"minutes","description":""}')
+LOG_E_ID=$(echo "$LOG_E" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+EMPTY=$(curl -sS -b "$COOKIES" "$BASE/api/logs/$LOG_E_ID" \
+  | python3 -c '
+import sys, json
+s = json.load(sys.stdin)["streakStats"]
+cur = s["current"]
+lng = s["longest"]
+avg = "null" if s["average"] is None else "%.1f" % float(s["average"])
+print("%s|%s|%s" % (cur, avg, lng))
+')
+[ "$EMPTY" = "0|null|0" ] && ok "empty log: 0|null|0" \
+  || fail "expected 0|null|0, got $EMPTY"
+
 say "Logout"
 HTTP=$(curl -sS -b "$COOKIES" -c "$COOKIES" -o /dev/null -w "%{http_code}" -X POST "$BASE/api/auth/logout")
 [ "$HTTP" = "204" ] && ok "logout 204" || fail "logout (got $HTTP)"
