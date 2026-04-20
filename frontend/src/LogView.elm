@@ -178,7 +178,7 @@ update msg model =
                 , submitting = False
                 , error = Nothing
               }
-            , Cmd.none
+            , Api.getLog model.logId LogFetched
             , NoOp
             )
 
@@ -189,7 +189,10 @@ update msg model =
             ( model, Api.deleteEntry eid (EntryDeleted eid), NoOp )
 
         EntryDeleted eid (Ok ()) ->
-            ( { model | entries = List.filter (\e -> e.id /= eid) model.entries }, Cmd.none, NoOp )
+            ( { model | entries = List.filter (\e -> e.id /= eid) model.entries }
+            , Api.getLog model.logId LogFetched
+            , NoOp
+            )
 
         EntryDeleted _ (Err err) ->
             ( { model | error = Just (Api.apiErrorToString err) }, Cmd.none, NoOp )
@@ -254,7 +257,7 @@ update msg model =
                         e
             in
             ( { model | entries = List.map replace model.entries, editing = Nothing, error = Nothing }
-            , Cmd.none
+            , Api.getLog model.logId LogFetched
             , NoOp
             )
 
