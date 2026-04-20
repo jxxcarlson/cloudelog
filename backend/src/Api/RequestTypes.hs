@@ -66,9 +66,17 @@ data LogResponse = LogResponse
   } deriving (Show, Generic)
 instance ToJSON LogResponse where toJSON = genericToJSON (stripPrefixOptions 4)
 
+data StreakStats = StreakStats
+  { ssCurrent :: Int
+  , ssAverage :: Maybe Double
+  , ssLongest :: Int
+  } deriving (Show, Generic)
+instance ToJSON StreakStats where toJSON = genericToJSON (stripPrefixOptions 2)
+
 data LogDetailResponse = LogDetailResponse
-  { ldrLog     :: LogResponse
-  , ldrEntries :: [EntryResponse]
+  { ldrLog         :: LogResponse
+  , ldrEntries     :: [EntryResponse]
+  , ldrStreakStats :: StreakStats
   } deriving (Show, Generic)
 instance ToJSON LogDetailResponse where toJSON = genericToJSON (stripPrefixOptions 3)
 

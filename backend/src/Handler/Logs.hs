@@ -13,6 +13,7 @@ import           AppEnv                  (AppEnv(..), AppM)
 import           AppError                (AppError(..), appErrorToServantErr)
 import qualified Db.Entry                as DbEntry
 import qualified Db.Log                  as DbLog
+import qualified Db.Streak               as DbStreak
 import qualified Db.User                 as DbUser
 import           Control.Monad           (unless, when)
 import           Control.Monad.IO.Class  (liftIO)
@@ -108,12 +109,24 @@ getLogHandler auth lid = do
       entries <- case rEntries of
         Left _  -> throwError $ appErrorToServantErr (Internal "database error")
         Right v -> pure (V.toList v)
+      rStats <- liftIO $ Pool.use pool $ Session.statement lid DbStreak.selectStreakStats
+      stats <- case rStats of
+        Left _  -> throwError $ appErrorToServantErr (Internal "database error")
+        Right s -> pure s
       -- Fire-and-forget: update current_log_id. Don't fail the request on error.
       _ <- liftIO $ Pool.use pool $ Session.statement (uid, lid) DbUser.setCurrentLogId
       pure LogDetailResponse
-        { ldrLog     = toLogResponse l
-        , ldrEntries = map toEntryResponse entries
+        { ldrLog         = toLogResponse l
+        , ldrEntries     = map toEntryResponse entries
+        , ldrStreakStats = toStreakStats stats
         }
+  where
+    toStreakStats :: DbStreak.StreakStatsRow -> StreakStats
+    toStreakStats DbStreak.StreakStatsRow{..} = StreakStats
+      { ssCurrent = fromIntegral ssrCurrent
+      , ssAverage = ssrAverage
+      , ssLongest = fromIntegral ssrLongest
+      }
 
 -- PUT /api/logs/:id
 updateLogHandler :: AuthResult AuthUser -> Text -> UpdateLogRequest -> AppM LogResponse
