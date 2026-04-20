@@ -8,10 +8,12 @@ import           Api.RequestTypes
 import           AppEnv                  (AppEnv(..), AppM)
 import           AppError                (AppError(..), appErrorToServantErr)
 import qualified Db.Entry                as DbEntry
+import qualified Db.Streak               as DbStreak
 import           Handler.Logs            (requireUser, toEntryResponse)
 import           Control.Monad.IO.Class  (liftIO)
 import           Control.Monad.Reader    (asks)
 import           Control.Monad.Except    (throwError)
+import           Data.Int                (Int32)
 import           Data.Maybe              (fromMaybe)
 import           Data.Text               (Text)
 import           Data.UUID               (toText)
@@ -25,6 +27,9 @@ import           Servant                 (NoContent(..))
 import           Servant.Auth.Server     (AuthResult)
 import           Service.Auth            (AuthUser)
 import           Service.SkipFill        (datesToFill)
+import qualified Service.Streak          as Streak
+import           Types.Common            (LogId)
+import           Types.Entry             (Entry(..))
 
 -- POST /api/logs/:id/entries
 -- Preflight: read maxDate to know how many UUIDs to pre-generate for skip-fills.
@@ -67,6 +72,7 @@ postEntryHandler auth lid CreateEntryRequest{..} = do
               _entry <- Tx.statement
                           (newEntryId, lid, cerEntryDate, cerQuantity, desc)
                           DbEntry.upsertEntry
+              recomputeStreaksTx lid
               allEntries <- Tx.statement lid DbEntry.listEntriesByLog
               pure (Right allEntries)
 
@@ -82,23 +88,36 @@ updateEntryHandler auth eid UpdateEntryRequest{..} = do
   uid <- requireUser auth
   validateQuantity uerQuantity
   pool <- asks envDbPool
-  r <- liftIO $ Pool.use pool $
-         Session.statement (eid, uid, uerQuantity, uerDescription) DbEntry.updateEntry
-  case r of
-    Left _          -> throwError $ appErrorToServantErr (Internal "database error")
-    Right Nothing   -> throwError $ appErrorToServantErr NotFound
-    Right (Just e)  -> pure (toEntryResponse e)
+  result <- liftIO $ Pool.use pool $
+    Tx.transaction Tx.Serializable Tx.Write $ do
+      mE <- Tx.statement (eid, uid, uerQuantity, uerDescription) DbEntry.updateEntry
+      case mE of
+        Nothing -> pure Nothing
+        Just e  -> do
+          recomputeStreaksTx (entLogId e)
+          pure (Just e)
+  case result of
+    Left _         -> throwError $ appErrorToServantErr (Internal "database error")
+    Right Nothing  -> throwError $ appErrorToServantErr NotFound
+    Right (Just e) -> pure (toEntryResponse e)
 
 -- DELETE /api/entries/:id
 deleteEntryHandler :: AuthResult AuthUser -> Text -> AppM NoContent
 deleteEntryHandler auth eid = do
   uid  <- requireUser auth
   pool <- asks envDbPool
-  r <- liftIO $ Pool.use pool $ Session.statement (eid, uid) DbEntry.deleteEntry
-  case r of
-    Left _   -> throwError $ appErrorToServantErr (Internal "database error")
-    Right 0  -> throwError $ appErrorToServantErr NotFound
-    Right _  -> pure NoContent
+  result <- liftIO $ Pool.use pool $
+    Tx.transaction Tx.Serializable Tx.Write $ do
+      mLid <- Tx.statement (eid, uid) DbEntry.deleteEntry
+      case mLid of
+        Nothing  -> pure Nothing
+        Just lid -> do
+          recomputeStreaksTx lid
+          pure (Just ())
+  case result of
+    Left _        -> throwError $ appErrorToServantErr (Internal "database error")
+    Right Nothing -> throwError $ appErrorToServantErr NotFound
+    Right _       -> pure NoContent
 
 ---------------------------------------------------------------
 -- helpers
@@ -108,6 +127,20 @@ generateUuids :: Int -> IO [Text]
 generateUuids n
   | n <= 0    = pure []
   | otherwise = mapM (\_ -> toText <$> UUID.nextRandom) [1..n]
+
+-- | Recompute and persist streaks for @lid@. Call inside the same transaction
+--   as any entry mutation so the streaks table stays in lockstep with entries.
+recomputeStreaksTx :: LogId -> Tx.Transaction ()
+recomputeStreaksTx lid = do
+  pairs <- V.toList <$> Tx.statement lid DbStreak.selectEntryDateQuantity
+  let streaks    = Streak.computeStreaks pairs
+      dates      = V.fromList (map fst streaks)
+      toInt32 n  = fromIntegral n :: Int32
+      lengths    = V.fromList (map (toInt32 . snd) streaks)
+  Tx.statement lid DbStreak.deleteStreaksForLog
+  if V.null dates
+    then pure ()
+    else Tx.statement (lid, dates, lengths) DbStreak.bulkInsertStreaks
 
 validateQuantity :: Double -> AppM ()
 validateQuantity q

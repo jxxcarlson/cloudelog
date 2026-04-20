@@ -10,7 +10,6 @@ module Db.Entry
   ) where
 
 import           Data.Functor.Contravariant ((>$<))
-import           Data.Int                   (Int64)
 import           Data.Text                  (Text)
 import           Data.Time.Calendar         (Day)
 import           Data.Vector                (Vector)
@@ -100,15 +99,19 @@ updateEntry = Statement sql encoder (D.rowMaybe entryRow) True
       ((\(_,_,c,_) -> c) >$< E.param (E.nonNullable E.float8)) <>
       ((\(_,_,_,d) -> d) >$< E.param (E.nonNullable E.text))
 
-deleteEntry :: Statement (EntryId, UserId) Int64
-deleteEntry = Statement sql encoder D.rowsAffected True
+-- | Delete an entry by id scoped to owner. Returns the deleted entry's log_id,
+--   or Nothing if nothing was deleted (not found or not owned).
+deleteEntry :: Statement (EntryId, UserId) (Maybe LogId)
+deleteEntry = Statement sql encoder decoder True
   where
     sql =
       "DELETE FROM entries WHERE id = $1 AND log_id IN \
-      \  (SELECT id FROM logs WHERE user_id = $2)"
+      \  (SELECT id FROM logs WHERE user_id = $2) \
+      \RETURNING log_id"
     encoder =
       (fst >$< E.param (E.nonNullable E.text)) <>
       (snd >$< E.param (E.nonNullable E.text))
+    decoder = D.rowMaybe (D.column (D.nonNullable D.text))
 
 -- | Ownership check for an entry by id (used by entry handlers before update/delete).
 getEntryOwner :: Statement EntryId (Maybe UserId)
