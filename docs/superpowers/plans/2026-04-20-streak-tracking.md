@@ -69,7 +69,9 @@ CREATE TABLE streaks (
     UNIQUE (log_id, start_date)
 );
 
-CREATE INDEX streaks_log_idx ON streaks (log_id);
+-- No separate index on log_id: the UNIQUE (log_id, start_date) btree above
+-- already serves every log_id-prefixed query via leftmost-prefix. Saves one
+-- index write per entry mutation on the recompute-on-write hot path.
 
 -- One-shot backfill for existing logs. After this, the backend owns the table.
 -- Islands pattern: consecutive dates within a (log_id, qty>0) subset have
@@ -92,7 +94,6 @@ GROUP BY log_id, grp;
 
 -- migrate:down
 
-DROP INDEX IF EXISTS streaks_log_idx;
 DROP TABLE IF EXISTS streaks;
 ```
 
