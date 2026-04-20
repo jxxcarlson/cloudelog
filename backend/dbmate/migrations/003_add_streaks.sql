@@ -8,8 +8,6 @@ CREATE TABLE streaks (
     UNIQUE (log_id, start_date)
 );
 
-CREATE INDEX streaks_log_idx ON streaks (log_id);
-
 -- One-shot backfill for existing logs. After this, the backend owns the table.
 -- Islands pattern: consecutive dates within a (log_id, qty>0) subset have
 -- a constant (entry_date - row_number) value, so GROUP BY that difference
@@ -31,5 +29,4 @@ GROUP BY log_id, grp;
 
 -- migrate:down
 
-DROP INDEX IF EXISTS streaks_log_idx;
 DROP TABLE IF EXISTS streaks;

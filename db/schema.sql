@@ -191,13 +191,6 @@ CREATE INDEX logs_user_updated_idx ON public.logs USING btree (user_id, updated_
 
 
 --
--- Name: streaks_log_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX streaks_log_idx ON public.streaks USING btree (log_id);
-
-
---
 -- Name: entries entries_log_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
