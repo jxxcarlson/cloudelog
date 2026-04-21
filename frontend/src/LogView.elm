@@ -614,30 +614,60 @@ viewDescription editing log =
 
 viewStats : Stats -> Html msg
 viewStats s =
-    div []
-        [ div [ class "stats" ]
-            [ div [] [ text ("Days: " ++ String.fromInt s.days) ]
-            , div [] [ text ("Skipped: " ++ String.fromInt s.skipped) ]
-            ]
-        , if List.isEmpty s.perMetric then
-            text ""
+    let
+        daysDiv =
+            div [] [ text ("Days: " ++ String.fromInt s.days) ]
 
-          else
-            table
-                [ style "border-collapse" "collapse"
-                , style "margin" "0.5rem 0"
-                , style "font-size" "0.95rem"
+        skippedDiv =
+            div [] [ text ("Skipped: " ++ String.fromInt s.skipped) ]
+
+        fmt n =
+            String.fromFloat n
+
+        fmt1 a =
+            String.fromFloat (toFloat (round (a * 10)) / 10)
+
+        avgText ms =
+            case ms.average of
+                Just a ->
+                    fmt1 a ++ " " ++ ms.unit
+
+                Nothing ->
+                    "—"
+    in
+    case s.perMetric of
+        [ ms ] ->
+            -- Single-metric: Days, Skipped, Total, Average on one compact row.
+            div [ class "stats" ]
+                [ daysDiv
+                , skippedDiv
+                , div [] [ text ("Total: " ++ fmt ms.total ++ " " ++ ms.unit) ]
+                , div [] [ text ("Average: " ++ avgText ms) ]
                 ]
-                [ thead []
-                    [ tr []
-                        [ metricTh "item"
-                        , metricTh "total"
-                        , metricTh "avg"
+
+        _ ->
+            -- Multi-metric: Days/Skipped row, then a per-metric table.
+            div []
+                [ div [ class "stats" ] [ daysDiv, skippedDiv ]
+                , if List.isEmpty s.perMetric then
+                    text ""
+
+                  else
+                    table
+                        [ style "border-collapse" "collapse"
+                        , style "margin" "0.5rem 0"
+                        , style "font-size" "0.95rem"
                         ]
-                    ]
-                , tbody [] (List.map viewMetricStatsRow s.perMetric)
+                        [ thead []
+                            [ tr []
+                                [ metricTh "item"
+                                , metricTh "total"
+                                , metricTh "avg"
+                                ]
+                            ]
+                        , tbody [] (List.map viewMetricStatsRow s.perMetric)
+                        ]
                 ]
-        ]
 
 
 metricTh : String -> Html msg
