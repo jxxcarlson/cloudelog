@@ -1,6 +1,7 @@
 module LogList exposing (Model, Msg(..), OutMsg(..), init, update, view)
 
 import Api
+import Date
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
@@ -128,7 +129,12 @@ update msg model =
                     { name = String.trim f.name
                     , metrics = metrics
                     , description = f.description
-                    , startDate = Nothing
+                    , startDate =
+                        if String.isEmpty (String.trim f.startDate) then
+                            Nothing
+
+                        else
+                            Date.fromIsoString f.startDate |> Result.toMaybe
                     }
                     LogCreated
                 , NoOp

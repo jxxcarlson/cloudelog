@@ -6,9 +6,11 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
-import Types exposing (Entry, EntryValue, Log, StreakStats)
+import Types exposing (Entry, Log, StreakStats)
 
 
+-- TEMPORARY: single-metric position-0 accessors. Removed in Task 5/6 of the
+-- multi-metric-logs plan. If you're reading these in a later task, fix it.
 firstValueQuantity : Entry -> Float
 firstValueQuantity en =
     en.values |> List.head |> Maybe.map .quantity |> Maybe.withDefault 0

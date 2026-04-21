@@ -24,7 +24,6 @@ import Http
 import Iso8601
 import Json.Decode as D
 import Json.Encode as E
-import Time exposing (Posix)
 import Types exposing (Entry, EntryValue, Log, LogSummary, Metric, StreakStats, User)
 
 
