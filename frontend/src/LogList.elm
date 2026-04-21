@@ -301,7 +301,8 @@ viewMetricsEditor metrics =
             List.length metrics
     in
     div []
-        (List.indexedMap (viewMetricRow total) metrics
+        (h4 [] [ text "Metrics" ]
+            :: List.indexedMap (viewMetricRow total) metrics
             ++ [ button [ onClick AddMetricRow, type_ "button" ] [ text "+ Add metric" ] ]
         )
 
