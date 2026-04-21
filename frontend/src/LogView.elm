@@ -497,11 +497,7 @@ view model =
                     [ h1 [ style "margin" "0" ] [ text log.name ]
                     , viewStats stats
                     ]
-                , p []
-                    [ text ("Unit: " ++ (log.metrics |> List.map .unit |> String.join ", "))
-                    , text (" · since " ++ Date.toIsoString log.startDate)
-                    ]
-                , viewStreakStats model.streakStats
+                , viewStreakStats model.streakStats log.startDate
                 , viewDescription model.editingDesc log
                 , viewCollectionControl log model.availableCollections
                 , hr
@@ -719,8 +715,8 @@ viewMetricStatsRow ms =
         ]
 
 
-viewStreakStats : Maybe StreakStats -> Html msg
-viewStreakStats mss =
+viewStreakStats : Maybe StreakStats -> Date -> Html msg
+viewStreakStats mss startDate =
     let
         dash =
             "—"
@@ -758,16 +754,20 @@ viewStreakStats mss =
                            )
                     )
                 ]
+
+        sinceCell =
+            div [] [ text ("Since " ++ Date.format "MMMM d, y" startDate) ]
     in
     case mss of
         Nothing ->
-            text ""
+            div [ class "stats" ] [ sinceCell ]
 
         Just ss ->
             div [ class "stats" ]
                 [ intCell "Current streak" ss.current
                 , avgCell "Avg streak" ss.average
                 , intCell "Longest streak" ss.longest
+                , sinceCell
                 ]
 
 
