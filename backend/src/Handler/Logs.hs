@@ -6,6 +6,11 @@ module Handler.Logs
   , getLogHandler
   , updateLogHandler
   , deleteLogHandler
+  , normalizeMetric
+  , validateMetrics
+  , validateName
+  , normalizeUnit
+  , validateUnit
   ) where
 
 import           Api.RequestTypes
@@ -62,8 +67,8 @@ listLogsHandler auth = do
 createLogHandler :: AuthResult AuthUser -> CreateLogRequest -> AppM LogResponse
 createLogHandler auth CreateLogRequest{..} = do
   uid <- requireUser auth
-  validateUnit clrUnit
   validateName clrName
+  validateMetrics clrMetrics
   pool  <- asks envDbPool
   today <- liftIO (utctDay <$> getCurrentTime)
   startDate <- case clrStartDate of
@@ -73,24 +78,21 @@ createLogHandler auth CreateLogRequest{..} = do
         throwError $ appErrorToServantErr (BadRequest "start date cannot be in the future")
       pure d
   lid <- liftIO $ toText <$> UUID.nextRandom
-  let desc     = fromMaybe "" clrDescription
-      fillDays = datesToFill (Just (addDays (-1) startDate)) today
+  let desc          = fromMaybe "" clrDescription
+      normMetrics   = map normalizeMetric clrMetrics
+      metricNames   = V.fromList (map msName normMetrics)
+      metricUnits   = V.fromList (map msUnit normMetrics)
+      metricCount   = fromIntegral (length normMetrics) :: Int32
+      fillDays      = datesToFill (Just (addDays (-1) startDate)) today
   fillIds <- liftIO $ generateUuids (length fillDays)
   result <- liftIO $ Pool.use pool $
     Tx.transaction Tx.Serializable Tx.Write $ do
       l <- Tx.statement
-             ( lid
-             , uid
-             , clrName
-             , desc
-             , V.singleton (normalizeUnit clrUnit)  -- metric_names = [unit]
-             , V.singleton (normalizeUnit clrUnit)  -- metric_units = [unit]
-             , startDate
-             )
+             (lid, uid, clrName, desc, metricNames, metricUnits, startDate)
              DbLog.insertLog
       unless (null fillDays) $
         Tx.statement
-          (lid, V.fromList fillIds, V.fromList fillDays, 1 :: Int32)
+          (lid, V.fromList fillIds, V.fromList fillDays, metricCount)
           DbEntry.insertSkipFills
       pure l
   case result of
@@ -137,46 +139,56 @@ getLogHandler auth lid = do
       }
 
 -- PUT /api/logs/:id
+--
+-- Rename-only vs structural edit: if the incoming `metrics` array has units
+-- elementwise identical to the existing log's `metric_units`, we treat it as
+-- a rename (always allowed). Otherwise it's a structural change, which is
+-- only allowed when the log has no entries. The count-then-update dance
+-- runs inside a single serializable transaction so a concurrent entry
+-- insert can't slip in between the check and the update.
 updateLogHandler :: AuthResult AuthUser -> Text -> UpdateLogRequest -> AppM LogResponse
 updateLogHandler auth lid UpdateLogRequest{..} = do
   uid <- requireUser auth
   validateName ulrName
+  -- Validate metrics shape outside the tx so we can 400 without a DB round-trip.
+  case ulrMetrics of
+    Just ms -> validateMetrics ms
+    Nothing -> pure ()
   pool <- asks envDbPool
 
-  -- Fetch existing log to check ownership AND current unit.
-  rExisting <- liftIO $ Pool.use pool $ Session.statement (lid, uid) DbLog.getLog
-  existing <- case rExisting of
-    Left _         -> throwError $ appErrorToServantErr (Internal "database error")
-    Right Nothing  -> throwError $ appErrorToServantErr NotFound
-    Right (Just l) -> pure l
+  let applyUpdate newNames newUnits = do
+        mUpdated <- Tx.statement
+                      (lid, uid, ulrName, ulrDescription, newNames, newUnits)
+                      DbLog.updateLog
+        pure (Right mUpdated)
 
-  -- If caller sent a new unit, enforce "only when no entries".
-  let existingUnit =
-        if V.null (logMetricUnits existing)
-          then Nothing
-          else Just (V.head (logMetricUnits existing))
-  newUnit <- case ulrUnit of
-    Nothing -> pure (fromMaybe "" existingUnit)
-    Just u  -> do
-      validateUnit u
-      let u' = normalizeUnit u
-      when (Just u' /= existingUnit) $ do
-        rCount <- liftIO $ Pool.use pool $ Session.statement lid DbLog.countLogEntries
-        case rCount of
-          Left _  -> throwError $ appErrorToServantErr (Internal "database error")
-          Right 0 -> pure ()
-          Right _ -> throwError $ appErrorToServantErr
-                       (BadRequest "Cannot change unit of a log that has entries")
-      pure u'
+  result <- liftIO $ Pool.use pool $
+    Tx.transaction Tx.Serializable Tx.Write $ do
+      mExisting <- Tx.statement (lid, uid) DbLog.getLog
+      case mExisting of
+        Nothing       -> pure (Left NotFound)
+        Just existing -> do
+          case ulrMetrics of
+            Nothing ->
+              applyUpdate (logMetricNames existing) (logMetricUnits existing)
+            Just ms -> do
+              let normed     = map normalizeMetric ms
+                  incomingNm = V.fromList (map msName normed)
+                  incomingUn = V.fromList (map msUnit normed)
+                  unitsMatch = incomingUn == logMetricUnits existing
+              if unitsMatch
+                then applyUpdate incomingNm incomingUn
+                else do
+                  count <- Tx.statement lid DbLog.countLogEntries
+                  if count == 0
+                    then applyUpdate incomingNm incomingUn
+                    else pure (Left (BadRequest "Cannot change metric structure of a log that has entries"))
 
-  r <- liftIO $ Pool.use pool $
-         Session.statement
-           (lid, uid, ulrName, ulrDescription, V.singleton newUnit, V.singleton newUnit)
-           DbLog.updateLog
-  case r of
-    Left _         -> throwError $ appErrorToServantErr (Internal "database error")
-    Right Nothing  -> throwError $ appErrorToServantErr NotFound
-    Right (Just l) -> pure (toLogResponse l)
+  case result of
+    Left _usageErr              -> throwError $ appErrorToServantErr (Internal "database error")
+    Right (Left e)              -> throwError $ appErrorToServantErr e
+    Right (Right Nothing)       -> throwError $ appErrorToServantErr NotFound
+    Right (Right (Just l))      -> pure (toLogResponse l)
 
 -- DELETE /api/logs/:id
 deleteLogHandler :: AuthResult AuthUser -> Text -> AppM NoContent
@@ -197,7 +209,9 @@ toLogResponse :: Log -> LogResponse
 toLogResponse l = LogResponse
   { logrId          = logId l
   , logrName        = logName l
-  , logrUnit        = if V.null (logMetricUnits l) then "" else V.head (logMetricUnits l)
+  , logrMetrics     = zipWith MetricSpec
+                        (V.toList (logMetricNames l))
+                        (V.toList (logMetricUnits l))
   , logrDescription = logDescription l
   , logrStartDate   = logStartDate l
   , logrCreatedAt   = logCreatedAt l
@@ -206,13 +220,14 @@ toLogResponse l = LogResponse
 
 toEntryResponse :: Entry -> EntryResponse
 toEntryResponse e = EntryResponse
-  { erId          = entId e
-  , erLogId       = entLogId e
-  , erEntryDate   = entDate e
-  , erQuantity    = if V.null (entQuantities e)   then 0  else V.head (entQuantities e)
-  , erDescription = if V.null (entDescriptions e) then "" else V.head (entDescriptions e)
-  , erCreatedAt   = entCreatedAt e
-  , erUpdatedAt   = entUpdatedAt e
+  { erId        = entId e
+  , erLogId     = entLogId e
+  , erEntryDate = entDate e
+  , erValues    = zipWith EntryValue
+                    (V.toList (entQuantities e))
+                    (V.toList (entDescriptions e))
+  , erCreatedAt = entCreatedAt e
+  , erUpdatedAt = entUpdatedAt e
   }
 
 validateName :: Text -> AppM ()
@@ -234,3 +249,20 @@ normalizeUnit u =
   in  if lower `elem` ["minutes", "hours", "kilometers", "miles"]
         then lower
         else u
+
+normalizeMetric :: MetricSpec -> MetricSpec
+normalizeMetric (MetricSpec n u) =
+  MetricSpec (T.strip n) (normalizeUnit (T.strip u))
+
+validateMetrics :: [MetricSpec] -> AppM ()
+validateMetrics ms
+  | null ms = throwError $ appErrorToServantErr
+      (BadRequest "log must have at least one metric")
+  | otherwise = mapM_ validateOne ms
+  where
+    validateOne (MetricSpec n u) = do
+      when (T.null (T.strip n)) $
+        throwError $ appErrorToServantErr (BadRequest "metric name cannot be empty")
+      when (T.length n > 64) $
+        throwError $ appErrorToServantErr (BadRequest "metric name too long (max 64)")
+      validateUnit u

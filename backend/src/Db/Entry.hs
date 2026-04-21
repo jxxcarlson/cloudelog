@@ -6,14 +6,10 @@ module Db.Entry
   , updateEntry
   , deleteEntry
   , getEntryOwner
+  , selectEntryForOwner
   , lockLogForUpdate
   , getLogMetricCount
   ) where
-
--- Task 1's scalar-wire adapters use Postgres element-index assignment
--- (`quantities[1] = $3`) so the handler can patch position 0 without
--- reading the existing row to learn the array length. Task 2 replaces
--- these with full-array overwrites.
 
 import           Data.Functor.Contravariant ((>$<))
 import           Data.Int                   (Int32)
@@ -78,19 +74,8 @@ insertSkipFills = Statement sql encoder D.noResult True
       ((\(_,_,c,_) -> c) >$< E.param (E.nonNullable dateArrayE)) <>
       ((\(_,_,_,d) -> d) >$< E.param (E.nonNullable E.int4))
 
--- | INSERT a new entry with a full N-wide values array. On conflict, patch
---   only position 1 (1-indexed) from the incoming array. In Task 1 all logs
---   are single-metric so [1] is the only populated index; in Task 2 this
---   statement is replaced with a full-array overwrite.
---   Params: (id, log_id, entry_date, quantities, descriptions).
---
--- DEVIATION FROM PLAN: the plan's SQL was a straight overwrite of
--- quantities[1]/descriptions[1]. That broke test-api.sh's accumulate
--- assertions (which exercise the scalar wire format). Since the Task 1
--- contract is "wire format unchanged," we preserve the pre-task scalar
--- semantics by accumulating at index 1 and keeping the existing
--- description if the incoming one is empty. Task 2 will switch to the
--- full-array overwrite the plan described.
+-- | INSERT a new entry with a full values array. On conflict, replace the
+--   entire arrays — the wire-format request is authoritative.
 upsertEntry
   :: Statement (EntryId, LogId, Day, Vector Double, Vector Text) Entry
 upsertEntry = Statement sql encoder (D.singleRow entryRow) True
@@ -99,11 +84,9 @@ upsertEntry = Statement sql encoder (D.singleRow entryRow) True
       "INSERT INTO entries (id, log_id, entry_date, quantities, descriptions) \
       \VALUES ($1, $2, $3, $4, $5) \
       \ON CONFLICT (log_id, entry_date) DO UPDATE SET \
-      \  quantities[1]   = entries.quantities[1] + excluded.quantities[1], \
-      \  descriptions[1] = CASE WHEN excluded.descriptions[1] <> '' \
-      \                         THEN excluded.descriptions[1] \
-      \                         ELSE entries.descriptions[1] END, \
-      \  updated_at      = now() \
+      \  quantities   = excluded.quantities, \
+      \  descriptions = excluded.descriptions, \
+      \  updated_at   = now() \
       \RETURNING id, log_id, entry_date, quantities, descriptions, created_at, updated_at"
     encoder =
       ((\(a,_,_,_,_) -> a) >$< E.param (E.nonNullable E.text)) <>
@@ -112,26 +95,22 @@ upsertEntry = Statement sql encoder (D.singleRow entryRow) True
       ((\(_,_,_,d,_) -> d) >$< E.param (E.nonNullable doubleArrayE)) <>
       ((\(_,_,_,_,e) -> e) >$< E.param (E.nonNullable textArrayE))
 
--- | PUT /api/entries/:id patches position 1 of the values arrays with the
---   scalar quantity/description from the wire format. Task 2 replaces this
---   with a full-array overwrite driven by the new values-list wire format.
---   Params: (id, user_id, quantity, description).
-updateEntry :: Statement (EntryId, UserId, Double, Text) (Maybe Entry)
+-- | PUT /api/entries/:id overwrites the entire quantities and descriptions arrays.
+--   Params: (id, user_id, quantities, descriptions).
+updateEntry
+  :: Statement (EntryId, UserId, Vector Double, Vector Text) (Maybe Entry)
 updateEntry = Statement sql encoder (D.rowMaybe entryRow) True
   where
     sql =
-      "UPDATE entries e SET \
-      \  quantities[1]   = $3, \
-      \  descriptions[1] = $4, \
-      \  updated_at      = now() \
+      "UPDATE entries e SET quantities = $3, descriptions = $4, updated_at = now() \
       \FROM logs l \
       \WHERE e.id = $1 AND e.log_id = l.id AND l.user_id = $2 \
       \RETURNING e.id, e.log_id, e.entry_date, e.quantities, e.descriptions, e.created_at, e.updated_at"
     encoder =
       ((\(a,_,_,_) -> a) >$< E.param (E.nonNullable E.text)) <>
       ((\(_,b,_,_) -> b) >$< E.param (E.nonNullable E.text)) <>
-      ((\(_,_,c,_) -> c) >$< E.param (E.nonNullable E.float8)) <>
-      ((\(_,_,_,d) -> d) >$< E.param (E.nonNullable E.text))
+      ((\(_,_,c,_) -> c) >$< E.param (E.nonNullable doubleArrayE)) <>
+      ((\(_,_,_,d) -> d) >$< E.param (E.nonNullable textArrayE))
 
 -- | Delete an entry by id scoped to owner. Returns the deleted entry's log_id,
 --   or Nothing if nothing was deleted (not found or not owned).
@@ -156,6 +135,20 @@ getEntryOwner = Statement sql encoder decoder True
       \WHERE e.id = $1"
     encoder = E.param (E.nonNullable E.text)
     decoder = D.rowMaybe (D.column (D.nonNullable D.text))
+
+-- | Select the entry scoped to its owner. Returns Nothing if missing or not
+--   owned by the given user. Used by updateEntryHandler to read the current
+--   array length so it can enforce the wire-format length check.
+selectEntryForOwner :: Statement (EntryId, UserId) (Maybe Entry)
+selectEntryForOwner = Statement sql encoder (D.rowMaybe entryRow) True
+  where
+    sql =
+      "SELECT e.id, e.log_id, e.entry_date, e.quantities, e.descriptions, e.created_at, e.updated_at \
+      \FROM entries e JOIN logs l ON e.log_id = l.id \
+      \WHERE e.id = $1 AND l.user_id = $2"
+    encoder =
+      (fst >$< E.param (E.nonNullable E.text)) <>
+      (snd >$< E.param (E.nonNullable E.text))
 
 -- Reusable array encoders.
 textArrayE :: E.Value (Vector Text)

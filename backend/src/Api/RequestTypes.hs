@@ -40,9 +40,16 @@ instance ToJSON UserResponse where toJSON = genericToJSON (stripPrefixOptions 2)
 
 -- Logs --------------------------------------------------------------------
 
+data MetricSpec = MetricSpec
+  { msName :: Text
+  , msUnit :: Text
+  } deriving (Show, Generic)
+instance FromJSON MetricSpec where parseJSON = genericParseJSON (stripPrefixOptions 2)
+instance ToJSON   MetricSpec where toJSON    = genericToJSON   (stripPrefixOptions 2)
+
 data CreateLogRequest = CreateLogRequest
   { clrName        :: Text
-  , clrUnit        :: Text
+  , clrMetrics     :: [MetricSpec]
   , clrDescription :: Maybe Text
   , clrStartDate   :: Maybe Day
   } deriving (Show, Generic)
@@ -51,14 +58,14 @@ instance FromJSON CreateLogRequest where parseJSON = genericParseJSON (stripPref
 data UpdateLogRequest = UpdateLogRequest
   { ulrName        :: Text
   , ulrDescription :: Text
-  , ulrUnit        :: Maybe Text
+  , ulrMetrics     :: Maybe [MetricSpec]
   } deriving (Show, Generic)
 instance FromJSON UpdateLogRequest where parseJSON = genericParseJSON (stripPrefixOptions 3)
 
 data LogResponse = LogResponse
   { logrId          :: LogId
   , logrName        :: Text
-  , logrUnit        :: Text
+  , logrMetrics     :: [MetricSpec]
   , logrDescription :: Text
   , logrStartDate   :: Day
   , logrCreatedAt   :: UTCTime
@@ -82,27 +89,31 @@ instance ToJSON LogDetailResponse where toJSON = genericToJSON (stripPrefixOptio
 
 -- Entries -----------------------------------------------------------------
 
+data EntryValue = EntryValue
+  { evQuantity    :: Double
+  , evDescription :: Text
+  } deriving (Show, Generic)
+instance FromJSON EntryValue where parseJSON = genericParseJSON (stripPrefixOptions 2)
+instance ToJSON   EntryValue where toJSON    = genericToJSON   (stripPrefixOptions 2)
+
 data CreateEntryRequest = CreateEntryRequest
-  { cerEntryDate   :: Day
-  , cerQuantity    :: Double
-  , cerDescription :: Maybe Text
+  { cerEntryDate :: Day
+  , cerValues    :: [EntryValue]
   } deriving (Show, Generic)
 instance FromJSON CreateEntryRequest where parseJSON = genericParseJSON (stripPrefixOptions 3)
 
 data UpdateEntryRequest = UpdateEntryRequest
-  { uerQuantity    :: Double
-  , uerDescription :: Text
+  { uerValues :: [EntryValue]
   } deriving (Show, Generic)
 instance FromJSON UpdateEntryRequest where parseJSON = genericParseJSON (stripPrefixOptions 3)
 
 data EntryResponse = EntryResponse
-  { erId          :: EntryId
-  , erLogId       :: LogId
-  , erEntryDate   :: Day
-  , erQuantity    :: Double
-  , erDescription :: Text
-  , erCreatedAt   :: UTCTime
-  , erUpdatedAt   :: UTCTime
+  { erId         :: EntryId
+  , erLogId      :: LogId
+  , erEntryDate  :: Day
+  , erValues     :: [EntryValue]
+  , erCreatedAt  :: UTCTime
+  , erUpdatedAt  :: UTCTime
   } deriving (Show, Generic)
 instance ToJSON EntryResponse where toJSON = genericToJSON (stripPrefixOptions 2)
 

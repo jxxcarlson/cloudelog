@@ -41,7 +41,7 @@ fi
 say "Create log with explicit startDate 3 days ago (expect 3 skip-fill entries)"
 LOG_SD=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs" \
   -H "Content-Type: application/json" \
-  -d "{\"name\":\"Backfilled\",\"unit\":\"minutes\",\"description\":\"\",\"startDate\":\"$THREE_DAYS_AGO\"}")
+  -d "{\"name\":\"Backfilled\",\"metrics\":[{\"name\":\"minutes\",\"unit\":\"minutes\"}],\"description\":\"\",\"startDate\":\"$THREE_DAYS_AGO\"}")
 LOG_SD_ID=$(echo "$LOG_SD" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
 SD_IN_RESP=$(echo "$LOG_SD" | python3 -c 'import sys,json; print(json.load(sys.stdin)["startDate"])')
 [ "$SD_IN_RESP" = "$THREE_DAYS_AGO" ] && ok "startDate echoed in response" || fail "startDate response ($SD_IN_RESP)"
@@ -49,13 +49,13 @@ SD_IN_RESP=$(echo "$LOG_SD" | python3 -c 'import sys,json; print(json.load(sys.s
 GOT=$(curl -sS -b "$COOKIES" "$BASE/api/logs/$LOG_SD_ID")
 N_ENTRIES=$(echo "$GOT" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["entries"]))')
 [ "$N_ENTRIES" = "3" ] && ok "3 backfilled entries present" || fail "expected 3 entries, got $N_ENTRIES"
-ALL_ZERO=$(echo "$GOT" | python3 -c 'import sys,json; es=json.load(sys.stdin)["entries"]; print(all(e["quantity"]==0 and e["description"]=="" for e in es))')
+ALL_ZERO=$(echo "$GOT" | python3 -c 'import sys,json; es=json.load(sys.stdin)["entries"]; print(all(e["values"][0]["quantity"]==0 and e["values"][0]["description"]=="" for e in es))')
 [ "$ALL_ZERO" = "True" ] && ok "all backfilled entries are zero/empty" || fail "backfilled entries not zero/empty"
 
 say "Create log with no startDate (expect startDate == today, 0 entries)"
 LOG_TODAY=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs" \
   -H "Content-Type: application/json" \
-  -d '{"name":"TodayOnly","unit":"minutes","description":""}')
+  -d '{"name":"TodayOnly","metrics":[{"name":"minutes","unit":"minutes"}],"description":""}')
 LOG_TODAY_ID=$(echo "$LOG_TODAY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
 SD_TODAY=$(echo "$LOG_TODAY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["startDate"])')
 [ "$SD_TODAY" = "$TODAY" ] && ok "startDate defaults to today" || fail "default startDate ($SD_TODAY vs $TODAY)"
@@ -66,23 +66,23 @@ N_TODAY=$(curl -sS -b "$COOKIES" "$BASE/api/logs/$LOG_TODAY_ID" \
 say "Reject future startDate (expect 400)"
 HTTP=$(curl -sS -b "$COOKIES" -o /dev/null -w "%{http_code}" -X POST "$BASE/api/logs" \
   -H "Content-Type: application/json" \
-  -d "{\"name\":\"FutureLog\",\"unit\":\"minutes\",\"description\":\"\",\"startDate\":\"$TOMORROW\"}")
+  -d "{\"name\":\"FutureLog\",\"metrics\":[{\"name\":\"minutes\",\"unit\":\"minutes\"}],\"description\":\"\",\"startDate\":\"$TOMORROW\"}")
 [ "$HTTP" = "400" ] && ok "future startDate rejected" || fail "future startDate should 400 (got $HTTP)"
 
 say "Edit a backfilled skip entry (PUT /api/entries/:id)"
 FIRST_SKIP_ID=$(echo "$GOT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["entries"][0]["id"])')
 EDITED=$(curl -sS -b "$COOKIES" -X PUT "$BASE/api/entries/$FIRST_SKIP_ID" \
   -H "Content-Type: application/json" \
-  -d '{"quantity":20,"description":"late edit"}')
-EQ=$(echo "$EDITED" | python3 -c 'import sys,json; print(json.load(sys.stdin)["quantity"])')
-ED=$(echo "$EDITED" | python3 -c 'import sys,json; print(json.load(sys.stdin)["description"])')
+  -d '{"values":[{"quantity":20,"description":"late edit"}]}')
+EQ=$(echo "$EDITED" | python3 -c 'import sys,json; print(json.load(sys.stdin)["values"][0]["quantity"])')
+ED=$(echo "$EDITED" | python3 -c 'import sys,json; print(json.load(sys.stdin)["values"][0]["description"])')
 [ "$EQ" = "20.0" ] || [ "$EQ" = "20" ] && ok "skip entry quantity updated" || fail "edit quantity ($EQ)"
 [ "$ED" = "late edit" ] && ok "skip entry description updated" || fail "edit description ($ED)"
 
 say "Create log (minutes)"
 LOG=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs" \
   -H "Content-Type: application/json" \
-  -d '{"name":"Running","unit":"minutes","description":"jogs"}')
+  -d '{"name":"Running","metrics":[{"name":"minutes","unit":"minutes"}],"description":"jogs"}')
 LOG_ID=$(echo "$LOG" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
 [ -n "$LOG_ID" ] && ok "created log $LOG_ID" || fail "create log"
 
@@ -92,50 +92,37 @@ curl -sS -b "$COOKIES" "$BASE/api/logs" | grep -q "Running" && ok "list contains
 say "Post first entry (2026-04-10, quantity=30)"
 R1=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs/$LOG_ID/entries" \
   -H "Content-Type: application/json" \
-  -d '{"entryDate":"2026-04-10","quantity":30,"description":"easy"}')
+  -d '{"entryDate":"2026-04-10","values":[{"quantity":30,"description":"easy"}]}')
 N1=$(echo "$R1" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["entries"]))')
 [ "$N1" = "1" ] && ok "first entry inserted, total=1" || fail "first entry (got $N1)"
 
 say "Post gap entry (2026-04-13) — expect 4 rows total (10, 11, 12, 13)"
 R2=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs/$LOG_ID/entries" \
   -H "Content-Type: application/json" \
-  -d '{"entryDate":"2026-04-13","quantity":45,"description":"hard"}')
+  -d '{"entryDate":"2026-04-13","values":[{"quantity":45,"description":"hard"}]}')
 N2=$(echo "$R2" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["entries"]))')
 [ "$N2" = "4" ] && ok "skip-fill gave 4 rows" || fail "skip-fill count (got $N2)"
 
 SKIP_QTY=$(echo "$R2" | python3 -c '
 import sys,json
 es = json.load(sys.stdin)["entries"]
-print([e["quantity"] for e in es if e["entryDate"]=="2026-04-11"][0])
+print([e["values"][0]["quantity"] for e in es if e["entryDate"]=="2026-04-11"][0])
 ')
 [ "$SKIP_QTY" = "0.0" ] || [ "$SKIP_QTY" = "0" ] && ok "gap day has quantity 0" || fail "skip-fill quantity (got $SKIP_QTY)"
 
-say "Same-day accumulate (post 2026-04-13 again, +15)"
-R3=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs/$LOG_ID/entries" \
+say "Same-day overwrite (post 2026-04-13 again, qty=7)"
+curl -sS -b "$COOKIES" -X POST "$BASE/api/logs/$LOG_ID/entries" \
   -H "Content-Type: application/json" \
-  -d '{"entryDate":"2026-04-13","quantity":15,"description":""}')
-ACC_QTY=$(echo "$R3" | python3 -c '
-import sys,json
-es = json.load(sys.stdin)["entries"]
-print([e["quantity"] for e in es if e["entryDate"]=="2026-04-13"][0])
-')
-[ "$ACC_QTY" = "60.0" ] || [ "$ACC_QTY" = "60" ] && ok "accumulated to 60" || fail "accumulate (got $ACC_QTY)"
-
-say "Back-fill accumulate onto a skip (post 2026-04-11, +20)"
-R4=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs/$LOG_ID/entries" \
-  -H "Content-Type: application/json" \
-  -d '{"entryDate":"2026-04-11","quantity":20,"description":"upgraded from skip"}')
-UPG=$(echo "$R4" | python3 -c '
-import sys,json
-es = json.load(sys.stdin)["entries"]
-print([e["quantity"] for e in es if e["entryDate"]=="2026-04-11"][0])
-')
-[ "$UPG" = "20.0" ] || [ "$UPG" = "20" ] && ok "skip upgraded to 20" || fail "back-fill (got $UPG)"
+  -d '{"entryDate":"2026-04-13","values":[{"quantity":7,"description":""}]}' \
+  > /dev/null
+GOT_Q=$(curl -sS -b "$COOKIES" "$BASE/api/logs/$LOG_ID" \
+  | python3 -c 'import sys,json; es=json.load(sys.stdin)["entries"]; print(next(e for e in es if e["entryDate"]=="2026-04-13")["values"][0]["quantity"])')
+[ "$GOT_Q" = "7" ] || [ "$GOT_Q" = "7.0" ] && ok "same-day POST overwrites to 7" || fail "expected 7, got $GOT_Q"
 
 say "Reject unit change when entries exist"
 HTTP=$(curl -sS -b "$COOKIES" -o /dev/null -w "%{http_code}" -X PUT "$BASE/api/logs/$LOG_ID" \
   -H "Content-Type: application/json" \
-  -d '{"name":"Running","description":"jogs","unit":"hours"}')
+  -d '{"name":"Running","description":"jogs","metrics":[{"name":"minutes","unit":"hours"}]}')
 [ "$HTTP" = "400" ] && ok "unit change rejected (400)" || fail "unit change should 400 (got $HTTP)"
 
 say "Delete log"
@@ -147,14 +134,14 @@ say "Streak tracking"
 # Fresh log starting today.
 LOG_S=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs" \
   -H "Content-Type: application/json" \
-  -d '{"name":"Streaks","unit":"minutes","description":""}')
+  -d '{"name":"Streaks","metrics":[{"name":"minutes","unit":"minutes"}],"description":""}')
 LOG_S_ID=$(echo "$LOG_S" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
 
 post_entry() {
   local date="$1" qty="$2"
   curl -sS -b "$COOKIES" -X POST "$BASE/api/logs/$LOG_S_ID/entries" \
     -H "Content-Type: application/json" \
-    -d "{\"entryDate\":\"$date\",\"quantity\":$qty,\"description\":\"\"}" \
+    -d "{\"entryDate\":\"$date\",\"values\":[{\"quantity\":$qty,\"description\":\"\"}]}" \
     > /dev/null
 }
 
@@ -214,7 +201,7 @@ D3_ID=$(curl -sS -b "$COOKIES" "$BASE/api/logs/$LOG_S_ID" \
   | python3 -c "import sys,json; es=json.load(sys.stdin)['entries']; print(next(e for e in es if e['entryDate']=='$D3')['id'])")
 curl -sS -b "$COOKIES" -X PUT "$BASE/api/entries/$D3_ID" \
   -H "Content-Type: application/json" \
-  -d '{"quantity":5,"description":""}' > /dev/null
+  -d '{"values":[{"quantity":5,"description":""}]}' > /dev/null
 
 STATS=$(get_stats)
 [ "$STATS" = "5|5.0|5" ] && ok "update skip→qty>0 merges streaks: 5|5.0|5" \
@@ -223,7 +210,7 @@ STATS=$(get_stats)
 # Empty log: a log with no qty>0 entries has current=0, avg=null, longest=0.
 LOG_E=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs" \
   -H "Content-Type: application/json" \
-  -d '{"name":"Empty","unit":"minutes","description":""}')
+  -d '{"name":"Empty","metrics":[{"name":"minutes","unit":"minutes"}],"description":""}')
 LOG_E_ID=$(echo "$LOG_E" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
 EMPTY=$(curl -sS -b "$COOKIES" "$BASE/api/logs/$LOG_E_ID" \
   | python3 -c '
@@ -236,6 +223,27 @@ print("%s|%s|%s" % (cur, avg, lng))
 ')
 [ "$EMPTY" = "0|null|0" ] && ok "empty log: 0|null|0" \
   || fail "expected 0|null|0, got $EMPTY"
+
+say "Multi-metric log"
+LOG_M=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Running","metrics":[{"name":"distance","unit":"miles"},{"name":"time","unit":"minutes"}],"description":""}')
+LOG_M_ID=$(echo "$LOG_M" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+N_METRICS=$(echo "$LOG_M" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["metrics"]))')
+[ "$N_METRICS" = "2" ] && ok "multi-metric log has 2 metrics" || fail "expected 2, got $N_METRICS"
+
+# Reject wrong-length values array.
+HTTP=$(curl -sS -b "$COOKIES" -o /dev/null -w "%{http_code}" -X POST "$BASE/api/logs/$LOG_M_ID/entries" \
+  -H "Content-Type: application/json" \
+  -d "{\"entryDate\":\"$TODAY\",\"values\":[{\"quantity\":3.2,\"description\":\"easy\"}]}")
+[ "$HTTP" = "400" ] && ok "wrong-length values rejected" || fail "expected 400, got $HTTP"
+
+# Accept correct-length values.
+POSTED=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs/$LOG_M_ID/entries" \
+  -H "Content-Type: application/json" \
+  -d "{\"entryDate\":\"$TODAY\",\"values\":[{\"quantity\":3.2,\"description\":\"easy\"},{\"quantity\":27.5,\"description\":\"\"}]}")
+N_VALS=$(echo "$POSTED" | python3 -c 'import sys,json; es=json.load(sys.stdin)["entries"]; print(len(es[0]["values"]))')
+[ "$N_VALS" = "2" ] && ok "entry carries 2 values" || fail "expected 2, got $N_VALS"
 
 say "Logout"
 HTTP=$(curl -sS -b "$COOKIES" -c "$COOKIES" -o /dev/null -w "%{http_code}" -X POST "$BASE/api/auth/logout")

@@ -29,7 +29,9 @@ CREATE TABLE public.entries (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     quantities double precision[] DEFAULT ARRAY[]::double precision[] NOT NULL,
-    descriptions text[] DEFAULT ARRAY[]::text[] NOT NULL
+    descriptions text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    CONSTRAINT entries_values_nonempty CHECK ((cardinality(quantities) >= 1)),
+    CONSTRAINT entries_values_same_length CHECK ((cardinality(quantities) = cardinality(descriptions)))
 );
 
 
@@ -240,4 +242,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('001'),
     ('002'),
     ('003'),
-    ('004');
+    ('004'),
+    ('005');

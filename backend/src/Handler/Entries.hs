@@ -10,12 +10,13 @@ import           AppError                (AppError(..), appErrorToServantErr)
 import qualified Db.Entry                as DbEntry
 import qualified Db.Streak               as DbStreak
 import           Handler.Logs            (requireUser, toEntryResponse)
+import           Control.Monad           (when)
 import           Control.Monad.IO.Class  (liftIO)
 import           Control.Monad.Reader    (asks)
 import           Control.Monad.Except    (throwError)
 import           Data.Int                (Int32)
-import           Data.Maybe              (fromMaybe)
 import           Data.Text               (Text)
+import qualified Data.Text               as T
 import           Data.UUID               (toText)
 import qualified Data.UUID.V4            as UUID
 import qualified Data.Vector             as V
@@ -41,8 +42,19 @@ postEntryHandler
   -> AppM EntriesListResponse
 postEntryHandler auth lid CreateEntryRequest{..} = do
   uid <- requireUser auth
-  validateQuantity cerQuantity
+  mapM_ (validateQuantity . evQuantity) cerValues
   pool <- asks envDbPool
+
+  -- Ingress length check: we need the metric count from the log before we
+  -- can validate values.length. Read it outside the tx for a clean 400.
+  rCount <- liftIO $ Pool.use pool $ Session.statement lid DbEntry.getLogMetricCount
+  mCount0 <- case rCount of
+    Left _  -> throwError $ appErrorToServantErr (Internal "database error")
+    Right n -> pure (fromIntegral n :: Int)
+  when (length cerValues /= mCount0) $
+    throwError $ appErrorToServantErr
+      (BadRequest $ T.pack $ "values must have " <> show mCount0
+                          <> " entries (got " <> show (length cerValues) <> ")")
 
   -- Preflight: compute worst-case number of skip IDs needed.
   preflight <- liftIO $ Pool.use pool $ Session.statement lid DbEntry.maxEntryDate
@@ -53,7 +65,6 @@ postEntryHandler auth lid CreateEntryRequest{..} = do
   preFillIds <- liftIO $ generateUuids (length preFillDays)
 
   newEntryId <- liftIO $ toText <$> UUID.nextRandom
-  let desc = fromMaybe "" cerDescription
 
   result <- liftIO $ Pool.use pool $
     Tx.transaction Tx.Serializable Tx.Write $ do
@@ -64,8 +75,7 @@ postEntryHandler auth lid CreateEntryRequest{..} = do
           | ownerId /= uid -> pure (Left Forbidden)
           | otherwise      -> do
               mCount <- Tx.statement lid DbEntry.getLogMetricCount
-              -- Inside the lock, use the preflight values. If the actual
-              -- maxDate advanced in the interim, ON CONFLICT DO NOTHING handles it.
+              -- length check already validated at ingress
               _ <- if null preFillDays
                      then pure ()
                      else Tx.statement
@@ -75,10 +85,8 @@ postEntryHandler auth lid CreateEntryRequest{..} = do
                             , mCount
                             )
                             DbEntry.insertSkipFills
-              -- Single-metric wire format: build an N-length array by
-              -- padding quantity to position 0 and zeros elsewhere.
-              let qs    = V.generate (fromIntegral mCount) (\i -> if i == 0 then cerQuantity else 0)
-                  descs = V.generate (fromIntegral mCount) (\i -> if i == 0 then desc        else "")
+              let qs    = V.fromList (map evQuantity cerValues)
+                  descs = V.fromList (map evDescription cerValues)
               _entry <- Tx.statement
                           (newEntryId, lid, cerEntryDate, qs, descs)
                           DbEntry.upsertEntry
@@ -96,20 +104,33 @@ postEntryHandler auth lid CreateEntryRequest{..} = do
 updateEntryHandler :: AuthResult AuthUser -> Text -> UpdateEntryRequest -> AppM EntryResponse
 updateEntryHandler auth eid UpdateEntryRequest{..} = do
   uid <- requireUser auth
-  validateQuantity uerQuantity
+  mapM_ (validateQuantity . evQuantity) uerValues
   pool <- asks envDbPool
   result <- liftIO $ Pool.use pool $
     Tx.transaction Tx.Serializable Tx.Write $ do
-      mE <- Tx.statement (eid, uid, uerQuantity, uerDescription) DbEntry.updateEntry
-      case mE of
-        Nothing -> pure Nothing
+      mCurrent <- Tx.statement (eid, uid) DbEntry.selectEntryForOwner
+      case mCurrent of
+        Nothing -> pure (Right Nothing)
         Just e  -> do
-          recomputeStreaksTx (entLogId e)
-          pure (Just e)
+          let expected = V.length (entQuantities e)
+          if length uerValues /= expected
+            then pure (Left expected)
+            else do
+              let qs    = V.fromList (map evQuantity uerValues)
+                  descs = V.fromList (map evDescription uerValues)
+              mUpdated <- Tx.statement (eid, uid, qs, descs) DbEntry.updateEntry
+              case mUpdated of
+                Nothing -> pure (Right Nothing)
+                Just e' -> do
+                  recomputeStreaksTx (entLogId e')
+                  pure (Right (Just e'))
   case result of
-    Left _         -> throwError $ appErrorToServantErr (Internal "database error")
-    Right Nothing  -> throwError $ appErrorToServantErr NotFound
-    Right (Just e) -> pure (toEntryResponse e)
+    Left _             -> throwError $ appErrorToServantErr (Internal "database error")
+    Right (Left n)     -> throwError $ appErrorToServantErr
+                            (BadRequest $ T.pack $ "values must have " <> show n
+                                                <> " entries (got " <> show (length uerValues) <> ")")
+    Right (Right Nothing)  -> throwError $ appErrorToServantErr NotFound
+    Right (Right (Just e)) -> pure (toEntryResponse e)
 
 -- DELETE /api/entries/:id
 deleteEntryHandler :: AuthResult AuthUser -> Text -> AppM NoContent
