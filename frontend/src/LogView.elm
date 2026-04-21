@@ -1,4 +1,4 @@
-module LogView exposing (MetricStats, Model, Msg(..), OutMsg(..), Stats, computeStats, init, update, view)
+module LogView exposing (MetricStats, Model, Msg(..), OutMsg(..), Stats, ValueDraft, computeStats, init, update, view)
 
 import Api
 import Date exposing (Date)
@@ -6,19 +6,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
-import Types exposing (Entry, Log, StreakStats)
-
-
--- TEMPORARY: single-metric position-0 accessors. Removed in Task 5/6 of the
--- multi-metric-logs plan. If you're reading these in a later task, fix it.
-firstValueQuantity : Entry -> Float
-firstValueQuantity en =
-    en.values |> List.head |> Maybe.map .quantity |> Maybe.withDefault 0
-
-
-firstValueDescription : Entry -> String
-firstValueDescription en =
-    en.values |> List.head |> Maybe.map .description |> Maybe.withDefault ""
+import Types exposing (Entry, EntryValue, Log, Metric, StreakStats)
 
 
 
@@ -106,14 +94,46 @@ computeStats mLog entries today =
 
 
 ---------------------------------------------------------------
+-- Local helpers
+---------------------------------------------------------------
+
+
+{-| Local copy of `updateAt` — intentionally duplicated from `LogList.elm`
+to avoid a cross-module import between view modules.
+-}
+updateAt : Int -> (a -> a) -> List a -> List a
+updateAt i f xs =
+    List.indexedMap
+        (\j x ->
+            if i == j then
+                f x
+
+            else
+                x
+        )
+        xs
+
+
+type alias ValueDraft =
+    { qty : String
+    , desc : String
+    }
+
+
+emptyValueDrafts : List Metric -> List ValueDraft
+emptyValueDrafts metrics =
+    List.map (\_ -> { qty = "", desc = "" }) metrics
+
+
+
+---------------------------------------------------------------
 -- page Model / Msg
 ---------------------------------------------------------------
 
 
 type alias EditDraft =
     { entryId : String
-    , qty : String
-    , desc : String
+    , values : List ValueDraft
     , submitting : Bool
     }
 
@@ -132,8 +152,7 @@ type alias Model =
     , streakStats : Maybe StreakStats
     , loading : Bool
     , error : Maybe String
-    , newQty : String
-    , newDesc : String
+    , newValues : List ValueDraft
     , submitting : Bool
     , editing : Maybe EditDraft
     , editingDesc : Maybe DescDraft
@@ -149,8 +168,7 @@ init logId today =
       , streakStats = Nothing
       , loading = True
       , error = Nothing
-      , newQty = ""
-      , newDesc = ""
+      , newValues = []
       , submitting = False
       , editing = Nothing
       , editingDesc = Nothing
@@ -161,15 +179,15 @@ init logId today =
 
 type Msg
     = LogFetched (Result Http.Error { log : Log, entries : List Entry, streakStats : StreakStats })
-    | QtyChanged String
-    | DescChanged String
+    | NewQtyChanged Int String
+    | NewDescChanged Int String
     | AddEntry
     | EntryPosted (Result Http.Error (List Entry))
     | DeleteEntry String
     | EntryDeleted String (Result Http.Error ())
     | StartEdit Entry
-    | EditQtyChanged String
-    | EditDescChanged String
+    | EditQtyChanged Int String
+    | EditDescChanged Int String
     | SaveEdit
     | CancelEdit
     | EditSaved (Result Http.Error Entry)
@@ -192,6 +210,7 @@ update msg model =
                 | log = Just log
                 , entries = entries
                 , streakStats = Just streakStats
+                , newValues = emptyValueDrafts log.metrics
                 , loading = False
                 , error = Nothing
               }
@@ -202,32 +221,56 @@ update msg model =
         LogFetched (Err err) ->
             ( { model | loading = False, error = Just (Api.apiErrorToString err) }, Cmd.none, NoOp )
 
-        QtyChanged s ->
-            ( { model | newQty = s }, Cmd.none, NoOp )
+        NewQtyChanged i s ->
+            ( { model | newValues = updateAt i (\v -> { v | qty = s }) model.newValues }
+            , Cmd.none
+            , NoOp
+            )
 
-        DescChanged s ->
-            ( { model | newDesc = s }, Cmd.none, NoOp )
+        NewDescChanged i s ->
+            ( { model | newValues = updateAt i (\v -> { v | desc = s }) model.newValues }
+            , Cmd.none
+            , NoOp
+            )
 
         AddEntry ->
-            case String.toFloat (String.trim model.newQty) of
-                Just q ->
-                    ( { model | submitting = True, error = Nothing }
-                    , Api.postEntry model.logId
-                        { entryDate = model.today
-                        , values = [ { quantity = q, description = model.newDesc } ]
-                        }
-                        EntryPosted
-                    , NoOp
-                    )
+            let
+                parseValue v =
+                    case String.toFloat (String.trim v.qty) of
+                        Just q ->
+                            Just { quantity = q, description = v.desc }
 
-                Nothing ->
-                    ( { model | error = Just "Quantity must be a number." }, Cmd.none, NoOp )
+                        Nothing ->
+                            Nothing
+
+                parsed =
+                    List.map parseValue model.newValues
+            in
+            if List.any ((==) Nothing) parsed then
+                ( { model | error = Just "every quantity must be a number." }, Cmd.none, NoOp )
+
+            else
+                let
+                    values =
+                        List.filterMap identity parsed
+                in
+                ( { model | submitting = True, error = Nothing }
+                , Api.postEntry model.logId
+                    { entryDate = model.today, values = values }
+                    EntryPosted
+                , NoOp
+                )
 
         EntryPosted (Ok entries) ->
             ( { model
                 | entries = entries
-                , newQty = ""
-                , newDesc = ""
+                , newValues =
+                    case model.log of
+                        Just l ->
+                            emptyValueDrafts l.metrics
+
+                        Nothing ->
+                            []
                 , submitting = False
                 , error = Nothing
               }
@@ -255,8 +298,10 @@ update msg model =
                 | editing =
                     Just
                         { entryId = e.id
-                        , qty = String.fromFloat (firstValueQuantity e)
-                        , desc = firstValueDescription e
+                        , values =
+                            List.map
+                                (\v -> { qty = String.fromFloat v.quantity, desc = v.description })
+                                e.values
                         , submitting = False
                         }
                 , error = Nothing
@@ -265,18 +310,24 @@ update msg model =
             , NoOp
             )
 
-        EditQtyChanged s ->
+        EditQtyChanged i s ->
             case model.editing of
                 Just d ->
-                    ( { model | editing = Just { d | qty = s } }, Cmd.none, NoOp )
+                    ( { model | editing = Just { d | values = updateAt i (\v -> { v | qty = s }) d.values } }
+                    , Cmd.none
+                    , NoOp
+                    )
 
                 Nothing ->
                     ( model, Cmd.none, NoOp )
 
-        EditDescChanged s ->
+        EditDescChanged i s ->
             case model.editing of
                 Just d ->
-                    ( { model | editing = Just { d | desc = s } }, Cmd.none, NoOp )
+                    ( { model | editing = Just { d | values = updateAt i (\v -> { v | desc = s }) d.values } }
+                    , Cmd.none
+                    , NoOp
+                    )
 
                 Nothing ->
                     ( model, Cmd.none, NoOp )
@@ -287,17 +338,30 @@ update msg model =
         SaveEdit ->
             case model.editing of
                 Just d ->
-                    case String.toFloat (String.trim d.qty) of
-                        Just q ->
-                            ( { model | editing = Just { d | submitting = True }, error = Nothing }
-                            , Api.updateEntry d.entryId
-                                { values = [ { quantity = q, description = d.desc } ] }
-                                EditSaved
-                            , NoOp
-                            )
+                    let
+                        parseValue v =
+                            case String.toFloat (String.trim v.qty) of
+                                Just q ->
+                                    Just { quantity = q, description = v.desc }
 
-                        Nothing ->
-                            ( { model | error = Just "Quantity must be a number." }, Cmd.none, NoOp )
+                                Nothing ->
+                                    Nothing
+
+                        parsed =
+                            List.map parseValue d.values
+                    in
+                    if List.any ((==) Nothing) parsed then
+                        ( { model | error = Just "every quantity must be a number." }, Cmd.none, NoOp )
+
+                    else
+                        let
+                            values =
+                                List.filterMap identity parsed
+                        in
+                        ( { model | editing = Just { d | submitting = True }, error = Nothing }
+                        , Api.updateEntry d.entryId { values = values } EditSaved
+                        , NoOp
+                        )
 
                 Nothing ->
                     ( model, Cmd.none, NoOp )
@@ -412,7 +476,7 @@ view model =
                     , style "border-top" "1px solid #ddd"
                     ]
                     []
-                , viewAddForm model
+                , viewNewEntryForm log.metrics model.newValues model.submitting
                 , case model.error of
                     Just e ->
                         div [ class "flash" ] [ text e ]
@@ -421,7 +485,7 @@ view model =
                         text ""
                 , div []
                     (List.map
-                        (viewEntryRow model.editing)
+                        (viewEntryRow log.metrics model.editing)
                         (List.reverse (List.sortBy (Date.toRataDie << .date) model.entries))
                     )
                 ]
@@ -580,74 +644,137 @@ viewStreakStats mss =
                 ]
 
 
-viewAddForm : Model -> Html Msg
-viewAddForm m =
+viewNewEntryForm : List Metric -> List ValueDraft -> Bool -> Html Msg
+viewNewEntryForm metrics drafts submitting =
     Html.form [ onSubmit AddEntry, style "width" "100%" ]
-        [ input
+        (List.indexedMap (viewValueDraftRow metrics) drafts
+            ++ [ button
+                    [ type_ "submit"
+                    , class "primary"
+                    , disabled submitting
+                    , style "flex" "0 0 auto"
+                    , style "margin-top" "0.25rem"
+                    ]
+                    [ text
+                        (if submitting then
+                            "Adding…"
+
+                         else
+                            "Add entry"
+                        )
+                    ]
+               ]
+        )
+
+
+viewValueDraftRow : List Metric -> Int -> ValueDraft -> Html Msg
+viewValueDraftRow metrics i v =
+    let
+        metric =
+            metrics |> List.drop i |> List.head
+
+        labelText =
+            case metric of
+                Just m ->
+                    m.name
+                        ++ (if String.isEmpty m.unit then
+                                ""
+
+                            else
+                                " (" ++ m.unit ++ ")"
+                           )
+
+                Nothing ->
+                    ""
+    in
+    div
+        [ class "entry-row"
+        , style "display" "flex"
+        , style "gap" "0.5rem"
+        , style "align-items" "center"
+        , style "margin-bottom" "0.25rem"
+        ]
+        [ div
+            [ style "flex" "0 0 auto"
+            , style "min-width" "7rem"
+            , style "color" "#555"
+            ]
+            [ text labelText ]
+        , input
             [ type_ "number"
             , step "any"
             , placeholder "quantity"
-            , value m.newQty
-            , onInput QtyChanged
+            , value v.qty
+            , onInput (NewQtyChanged i)
             , style "width" "7rem"
             , style "flex" "0 0 auto"
             ]
             []
         , input
-            [ placeholder "note (optional)"
-            , value m.newDesc
-            , onInput DescChanged
+            [ type_ "text"
+            , placeholder "note (optional)"
+            , value v.desc
+            , onInput (NewDescChanged i)
             , style "flex" "1 1 auto"
             , style "min-width" "0"
             ]
             []
-        , button [ type_ "submit", class "primary", disabled m.submitting, style "flex" "0 0 auto" ]
-            [ text
-                (if m.submitting then
-                    "Adding…"
-
-                 else
-                    "Add"
-                )
-            ]
         ]
 
 
-viewEntryRow : Maybe EditDraft -> Entry -> Html Msg
-viewEntryRow editing e =
+viewEntryRow : List Metric -> Maybe EditDraft -> Entry -> Html Msg
+viewEntryRow metrics editing e =
     case editing of
         Just d ->
             if d.entryId == e.id then
-                viewEditRow e d
+                viewEditRow metrics e d
 
             else
-                viewReadRow e
+                viewReadRow metrics e
 
         Nothing ->
-            viewReadRow e
+            viewReadRow metrics e
 
 
-viewReadRow : Entry -> Html Msg
-viewReadRow e =
+viewReadRow : List Metric -> Entry -> Html Msg
+viewReadRow metrics e =
     let
-        q =
-            firstValueQuantity e
+        isSkipped =
+            List.all (\v -> v.quantity == 0 && String.isEmpty v.description) e.values
 
-        descr =
-            firstValueDescription e
+        renderValue i v =
+            let
+                unit =
+                    metrics
+                        |> List.drop i
+                        |> List.head
+                        |> Maybe.map .unit
+                        |> Maybe.withDefault ""
+            in
+            String.fromFloat v.quantity
+                ++ (if String.isEmpty unit then
+                        ""
+
+                    else
+                        " " ++ unit
+                   )
+                ++ (if String.isEmpty v.description then
+                        ""
+
+                    else
+                        " — " ++ v.description
+                   )
+
+        body =
+            if isSkipped then
+                "(skipped)"
+
+            else
+                String.join " · " (List.indexedMap renderValue e.values)
     in
     div [ class "row" ]
         [ div [ class "date" ] [ text (Date.toIsoString e.date) ]
-        , div [ class "qty" ] [ text (String.fromFloat q) ]
-        , div [ class "desc" ]
-            [ text
-                (if q == 0 && String.isEmpty descr then
-                    "(skipped)"
-
-                 else
-                    descr
-                )
-            ]
+        , div [ class "desc" ] [ text body ]
         , div [ class "ctrls" ]
             [ button [ onClick (StartEdit e) ] [ text "Edit" ]
             , button [ onClick (DeleteEntry e.id) ] [ text "Del" ]
@@ -655,27 +782,18 @@ viewReadRow e =
         ]
 
 
-viewEditRow : Entry -> EditDraft -> Html Msg
-viewEditRow e d =
-    div [ class "row" ]
+viewEditRow : List Metric -> Entry -> EditDraft -> Html Msg
+viewEditRow metrics e d =
+    div [ class "row", style "flex-wrap" "wrap" ]
         [ div [ class "date" ] [ text (Date.toIsoString e.date) ]
-        , div [ class "qty" ]
-            [ input
-                [ type_ "number"
-                , step "any"
-                , value d.qty
-                , onInput EditQtyChanged
-                ]
-                []
+        , div
+            [ style "display" "flex"
+            , style "flex-direction" "column"
+            , style "gap" "0.25rem"
+            , style "flex" "1 1 auto"
+            , style "min-width" "0"
             ]
-        , div [ class "desc" ]
-            [ input
-                [ value d.desc
-                , onInput EditDescChanged
-                , placeholder "note (optional)"
-                ]
-                []
-            ]
+            (List.indexedMap (viewEditValueRow metrics) d.values)
         , div [ class "ctrls" ]
             [ button [ onClick SaveEdit, disabled d.submitting ]
                 [ text
@@ -688,4 +806,56 @@ viewEditRow e d =
                 ]
             , button [ onClick CancelEdit, disabled d.submitting ] [ text "Cancel" ]
             ]
+        ]
+
+
+viewEditValueRow : List Metric -> Int -> ValueDraft -> Html Msg
+viewEditValueRow metrics i v =
+    let
+        metric =
+            metrics |> List.drop i |> List.head
+
+        labelText =
+            case metric of
+                Just m ->
+                    m.name
+                        ++ (if String.isEmpty m.unit then
+                                ""
+
+                            else
+                                " (" ++ m.unit ++ ")"
+                           )
+
+                Nothing ->
+                    ""
+    in
+    div
+        [ style "display" "flex"
+        , style "gap" "0.5rem"
+        , style "align-items" "center"
+        ]
+        [ div
+            [ style "flex" "0 0 auto"
+            , style "min-width" "7rem"
+            , style "color" "#555"
+            , style "font-size" "0.85rem"
+            ]
+            [ text labelText ]
+        , input
+            [ type_ "number"
+            , step "any"
+            , value v.qty
+            , onInput (EditQtyChanged i)
+            , style "width" "6rem"
+            , style "flex" "0 0 auto"
+            ]
+            []
+        , input
+            [ value v.desc
+            , onInput (EditDescChanged i)
+            , placeholder "note (optional)"
+            , style "flex" "1 1 auto"
+            , style "min-width" "0"
+            ]
+            []
         ]
