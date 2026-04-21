@@ -275,21 +275,35 @@ viewForm f =
 
 viewMetricRow : Int -> Int -> MetricDraft -> Html Msg
 viewMetricRow total i m =
-    div [ class "metric-row" ]
+    div
+        [ class "metric-row"
+        , style "display" "flex"
+        , style "gap" "0.5rem"
+        , style "align-items" "center"
+        , style "margin-bottom" "0.25rem"
+        ]
         [ input
             [ placeholder "metric name (e.g. distance)"
             , value m.name
             , onInput (MetricNameChanged i)
+            , style "flex" "1 1 auto"
+            , style "min-width" "0"
             ]
             []
         , input
             [ placeholder "unit (e.g. miles)"
             , value m.unit
             , onInput (MetricUnitChanged i)
+            , style "flex" "0 0 auto"
+            , style "width" "10rem"
             ]
             []
         , button
-            [ onClick (RemoveMetricRow i), disabled (total <= 1), type_ "button" ]
+            [ onClick (RemoveMetricRow i)
+            , disabled (total <= 1)
+            , type_ "button"
+            , style "flex" "0 0 auto"
+            ]
             [ text "Remove" ]
         ]
 
