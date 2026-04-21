@@ -288,18 +288,17 @@ viewValueDraftRow logName metrics logId i v =
         labelText =
             case metric of
                 Just mm ->
-                    logName
-                        ++ " — "
-                        ++ mm.name
-                        ++ (if String.isEmpty mm.unit then
-                                ""
+                    if List.length metrics <= 1 then
+                        logName
 
-                            else
-                                " (" ++ mm.unit ++ ")"
-                           )
+                    else
+                        logName ++ " — " ++ mm.name
 
                 Nothing ->
                     logName
+
+        unitText =
+            metric |> Maybe.map .unit |> Maybe.withDefault ""
     in
     div
         [ style "display" "flex"
@@ -312,7 +311,7 @@ viewValueDraftRow logName metrics logId i v =
         , input
             [ type_ "number"
             , step "any"
-            , placeholder "quantity"
+            , placeholder unitText
             , value v.qty
             , onInput (DraftQtyChanged logId i)
             , style "width" "7rem"

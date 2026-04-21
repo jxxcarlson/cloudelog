@@ -768,18 +768,14 @@ viewValueDraftRow metrics i v =
             metrics |> List.drop i |> List.head
 
         labelText =
-            case metric of
-                Just m ->
-                    m.name
-                        ++ (if String.isEmpty m.unit then
-                                ""
+            if List.length metrics <= 1 then
+                ""
 
-                            else
-                                " (" ++ m.unit ++ ")"
-                           )
+            else
+                metric |> Maybe.map .name |> Maybe.withDefault ""
 
-                Nothing ->
-                    ""
+        unitText =
+            metric |> Maybe.map .unit |> Maybe.withDefault ""
     in
     div
         [ class "entry-row"
@@ -788,32 +784,39 @@ viewValueDraftRow metrics i v =
         , style "align-items" "center"
         , style "margin-bottom" "0.25rem"
         ]
-        [ div
-            [ style "flex" "0 0 auto"
-            , style "min-width" "7rem"
-            , style "color" "#555"
-            ]
-            [ text labelText ]
-        , input
-            [ type_ "number"
-            , step "any"
-            , placeholder "quantity"
-            , value v.qty
-            , onInput (NewQtyChanged i)
-            , style "width" "7rem"
-            , style "flex" "0 0 auto"
-            ]
+        ((if String.isEmpty labelText then
             []
-        , input
-            [ type_ "text"
-            , placeholder "note (optional)"
-            , value v.desc
-            , onInput (NewDescChanged i)
-            , style "flex" "1 1 auto"
-            , style "min-width" "0"
+
+          else
+            [ div
+                [ style "flex" "0 0 auto"
+                , style "min-width" "7rem"
+                , style "color" "#555"
+                ]
+                [ text labelText ]
             ]
-            []
-        ]
+         )
+            ++ [ input
+                    [ type_ "number"
+                    , step "any"
+                    , placeholder unitText
+                    , value v.qty
+                    , onInput (NewQtyChanged i)
+                    , style "width" "7rem"
+                    , style "flex" "0 0 auto"
+                    ]
+                    []
+               , input
+                    [ type_ "text"
+                    , placeholder "note (optional)"
+                    , value v.desc
+                    , onInput (NewDescChanged i)
+                    , style "flex" "1 1 auto"
+                    , style "min-width" "0"
+                    ]
+                    []
+               ]
+        )
 
 
 viewEntryRow : List Metric -> Maybe EditDraft -> Entry -> Html Msg
@@ -910,46 +913,50 @@ viewEditValueRow metrics i v =
             metrics |> List.drop i |> List.head
 
         labelText =
-            case metric of
-                Just m ->
-                    m.name
-                        ++ (if String.isEmpty m.unit then
-                                ""
+            if List.length metrics <= 1 then
+                ""
 
-                            else
-                                " (" ++ m.unit ++ ")"
-                           )
+            else
+                metric |> Maybe.map .name |> Maybe.withDefault ""
 
-                Nothing ->
-                    ""
+        unitText =
+            metric |> Maybe.map .unit |> Maybe.withDefault ""
     in
     div
         [ style "display" "flex"
         , style "gap" "0.5rem"
         , style "align-items" "center"
         ]
-        [ div
-            [ style "flex" "0 0 auto"
-            , style "min-width" "7rem"
-            , style "color" "#555"
-            , style "font-size" "0.85rem"
-            ]
-            [ text labelText ]
-        , input
-            [ type_ "number"
-            , step "any"
-            , value v.qty
-            , onInput (EditQtyChanged i)
-            , style "width" "6rem"
-            , style "flex" "0 0 auto"
-            ]
+        ((if String.isEmpty labelText then
             []
-        , input
-            [ value v.desc
-            , onInput (EditDescChanged i)
-            , placeholder "note (optional)"
-            , style "flex" "1 1 auto"
-            , style "min-width" "0"
+
+          else
+            [ div
+                [ style "flex" "0 0 auto"
+                , style "min-width" "7rem"
+                , style "color" "#555"
+                , style "font-size" "0.85rem"
+                ]
+                [ text labelText ]
             ]
-            []
-        ]
+         )
+            ++ [ input
+                    [ type_ "number"
+                    , step "any"
+                    , placeholder unitText
+                    , value v.qty
+                    , onInput (EditQtyChanged i)
+                    , style "width" "6rem"
+                    , style "flex" "0 0 auto"
+                    ]
+                    []
+               , input
+                    [ value v.desc
+                    , onInput (EditDescChanged i)
+                    , placeholder "note (optional)"
+                    , style "flex" "1 1 auto"
+                    , style "min-width" "0"
+                    ]
+                    []
+               ]
+        )
