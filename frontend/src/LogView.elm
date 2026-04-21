@@ -686,7 +686,11 @@ viewStreakStats mss =
 
 viewNewEntryForm : List Metric -> List ValueDraft -> Bool -> Html Msg
 viewNewEntryForm metrics drafts submitting =
-    Html.form [ onSubmit AddEntry, style "width" "100%" ]
+    Html.form
+        [ onSubmit AddEntry
+        , style "width" "100%"
+        , style "display" "block"
+        ]
         (List.indexedMap (viewValueDraftRow metrics) drafts
             ++ [ button
                     [ type_ "submit"
