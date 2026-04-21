@@ -6,7 +6,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
-import Types exposing (Entry, EntryValue, Log, Metric, StreakStats)
+import Types exposing (CollectionSummary, Entry, EntryValue, Log, Metric, StreakStats)
 
 
 
@@ -156,6 +156,7 @@ type alias Model =
     , submitting : Bool
     , editing : Maybe EditDraft
     , editingDesc : Maybe DescDraft
+    , availableCollections : List CollectionSummary
     }
 
 
@@ -172,8 +173,12 @@ init logId today =
       , submitting = False
       , editing = Nothing
       , editingDesc = Nothing
+      , availableCollections = []
       }
-    , Api.getLog logId LogFetched
+    , Cmd.batch
+        [ Api.getLog logId LogFetched
+        , Api.listCollections CollectionsFetched
+        ]
     )
 
 
@@ -196,6 +201,9 @@ type Msg
     | SaveDesc
     | CancelDesc
     | DescSaved (Result Http.Error Log)
+    | CollectionsFetched (Result Http.Error (List CollectionSummary))
+    | CollectionSelected String
+    | CollectionSet (Result Http.Error Log)
 
 
 type OutMsg
@@ -444,6 +452,24 @@ update msg model =
             , NoOp
             )
 
+        CollectionsFetched (Ok cs) ->
+            ( { model | availableCollections = cs }, Cmd.none, NoOp )
+
+        CollectionsFetched (Err _) ->
+            ( model, Cmd.none, NoOp )
+
+        CollectionSelected "" ->
+            ( model, Api.setLogCollection model.logId Nothing CollectionSet, NoOp )
+
+        CollectionSelected cid ->
+            ( model, Api.setLogCollection model.logId (Just cid) CollectionSet, NoOp )
+
+        CollectionSet (Ok log) ->
+            ( { model | log = Just log, error = Nothing }, Cmd.none, NoOp )
+
+        CollectionSet (Err err) ->
+            ( { model | error = Just (Api.apiErrorToString err) }, Cmd.none, NoOp )
+
 
 view : Model -> Html Msg
 view model =
@@ -470,6 +496,7 @@ view model =
                 , viewStats stats
                 , viewStreakStats model.streakStats
                 , viewDescription model.editingDesc log
+                , viewCollectionControl log model.availableCollections
                 , hr
                     [ style "margin" "0.5rem 0 1rem 0"
                     , style "border" "none"
@@ -489,6 +516,29 @@ view model =
                         (List.reverse (List.sortBy (Date.toRataDie << .date) model.entries))
                     )
                 ]
+
+
+viewCollectionControl : Log -> List CollectionSummary -> Html Msg
+viewCollectionControl log availableCollections =
+    div [ style "margin" "0.5rem 0" ]
+        [ label
+            [ style "margin-right" "0.5rem"
+            , style "color" "#555"
+            ]
+            [ text "Collection:" ]
+        , select
+            [ onInput CollectionSelected
+            , value (Maybe.withDefault "" log.collectionId)
+            ]
+            (option [ value "" ] [ text "— none —" ]
+                :: List.map
+                    (\c ->
+                        option [ value c.id, selected (log.collectionId == Just c.id) ]
+                            [ text c.name ]
+                    )
+                    availableCollections
+            )
+        ]
 
 
 viewDescription : Maybe DescDraft -> Log -> Html Msg
