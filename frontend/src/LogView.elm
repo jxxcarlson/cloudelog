@@ -569,26 +569,66 @@ viewStats s =
             [ div [] [ text ("Days: " ++ String.fromInt s.days) ]
             , div [] [ text ("Skipped: " ++ String.fromInt s.skipped) ]
             ]
-        , div [] (List.map viewMetricStatsRow s.perMetric)
+        , if List.isEmpty s.perMetric then
+            text ""
+
+          else
+            table
+                [ style "border-collapse" "collapse"
+                , style "margin" "0.5rem 0"
+                , style "font-size" "0.95rem"
+                ]
+                [ thead []
+                    [ tr []
+                        [ metricTh "item"
+                        , metricTh "total"
+                        , metricTh "avg"
+                        ]
+                    ]
+                , tbody [] (List.map viewMetricStatsRow s.perMetric)
+                ]
         ]
+
+
+metricTh : String -> Html msg
+metricTh label =
+    th
+        [ style "text-align" "left"
+        , style "padding" "0.2rem 0.75rem"
+        , style "border-bottom" "1px solid #ccc"
+        , style "font-weight" "normal"
+        , style "color" "#555"
+        ]
+        [ text label ]
+
+
+metricTd : String -> Html msg
+metricTd content =
+    td
+        [ style "padding" "0.2rem 0.75rem"
+        , style "border-bottom" "1px solid #eee"
+        ]
+        [ text content ]
 
 
 viewMetricStatsRow : MetricStats -> Html msg
 viewMetricStatsRow ms =
-    div [ class "stats" ]
-        [ div [] [ text (ms.name ++ " — Total: " ++ String.fromFloat ms.total ++ " " ++ ms.unit) ]
-        , div []
-            [ text
-                ("Avg: "
-                    ++ (case ms.average of
-                            Just a ->
-                                String.fromFloat (toFloat (round (a * 10)) / 10) ++ " " ++ ms.unit
+    let
+        totalText =
+            String.fromFloat ms.total ++ " " ++ ms.unit
 
-                            Nothing ->
-                                "—"
-                       )
-                )
-            ]
+        avgText =
+            case ms.average of
+                Just a ->
+                    String.fromFloat (toFloat (round (a * 10)) / 10) ++ " " ++ ms.unit
+
+                Nothing ->
+                    "—"
+    in
+    tr []
+        [ metricTd ms.name
+        , metricTd totalText
+        , metricTd avgText
         ]
 
 
