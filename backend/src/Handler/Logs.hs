@@ -7,6 +7,7 @@ module Handler.Logs
   , getLogHandler
   , updateLogHandler
   , deleteLogHandler
+  , setLogCollectionHandler
   , normalizeMetric
   , validateMetrics
   , validateName
@@ -190,6 +191,25 @@ updateLogHandler auth lid UpdateLogRequest{..} = do
     Right (Left e)              -> throwError $ appErrorToServantErr e
     Right (Right Nothing)       -> throwError $ appErrorToServantErr NotFound
     Right (Right (Just l))      -> pure (toLogResponse l)
+
+-- PUT /api/logs/:id/collection
+--
+-- Assigns the log to a collection or releases it (collectionId: null).
+-- A dedicated endpoint keeps the Aeson absent-vs-null distinction out of
+-- PUT /api/logs/:id. The DB statement validates both log ownership and
+-- target-collection ownership inline; a missing or foreign collection id
+-- causes the UPDATE to touch zero rows and we return 404.
+setLogCollectionHandler
+  :: AuthResult AuthUser -> Text -> SetLogCollectionRequest -> AppM LogResponse
+setLogCollectionHandler auth lid SetLogCollectionRequest{..} = do
+  uid  <- requireUser auth
+  pool <- asks envDbPool
+  r <- liftIO $ Pool.use pool $
+         Session.statement (lid, uid, slcrCollectionId) DbLog.setLogCollection
+  case r of
+    Left _         -> throwError $ appErrorToServantErr (Internal "database error")
+    Right Nothing  -> throwError $ appErrorToServantErr NotFound
+    Right (Just l) -> pure (toLogResponse l)
 
 -- DELETE /api/logs/:id
 deleteLogHandler :: AuthResult AuthUser -> Text -> AppM NoContent

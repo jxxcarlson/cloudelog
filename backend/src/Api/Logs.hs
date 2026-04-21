@@ -19,6 +19,10 @@ type LogsAPI =
        Capture "id" Text :> "entries"
          :> ReqBody '[JSON] CreateEntryRequest
          :> Post '[JSON] EntriesListResponse
+  :<|> -- PUT /api/logs/:id/collection
+       Capture "id" Text :> "collection"
+         :> ReqBody '[JSON] SetLogCollectionRequest
+         :> Put '[JSON] LogResponse
 
 type EntriesAPI =
        -- PUT /api/entries/:id

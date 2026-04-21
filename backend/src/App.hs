@@ -112,6 +112,7 @@ serverT =
       :<|> H.updateLogHandler  auth
       :<|> H.deleteLogHandler  auth
       :<|> H.postEntryHandler  auth
+      :<|> H.setLogCollectionHandler auth
     entriesServer auth =
            H.updateEntryHandler auth
       :<|> H.deleteEntryHandler auth

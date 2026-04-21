@@ -3,6 +3,7 @@ module Db.Log
   , listLogsByUser
   , getLog
   , updateLog
+  , setLogCollection
   , deleteLog
   , countLogEntries
   ) where
@@ -16,7 +17,7 @@ import qualified Data.Vector                as V
 import qualified Hasql.Decoders             as D
 import qualified Hasql.Encoders             as E
 import           Hasql.Statement            (Statement(..))
-import           Types.Common               (LogId, UserId)
+import           Types.Common               (LogCollectionId, LogId, UserId)
 import           Types.Log                  (Log(..))
 
 -- | INSERT a log. Params: (id, user_id, name, description, metric_names, metric_units, start_date).
@@ -76,6 +77,29 @@ updateLog = Statement sql encoder (D.rowMaybe logRow) True
       ((\(_,_,_,d,_,_) -> d) >$< E.param (E.nonNullable E.text)) <>
       ((\(_,_,_,_,e,_) -> e) >$< E.param (E.nonNullable textArrayE)) <>
       ((\(_,_,_,_,_,f) -> f) >$< E.param (E.nonNullable textArrayE))
+
+-- | Assign a log to a collection, or release it to standalone if the collection
+--   id is Nothing. Validates ownership of both the log and (when non-null) the
+--   target collection in a single WHERE — if the target collection belongs to a
+--   different user, the UPDATE touches zero rows and returns Nothing.
+setLogCollection
+  :: Statement (LogId, UserId, Maybe LogCollectionId) (Maybe Log)
+setLogCollection = Statement sql encoder (D.rowMaybe logRow) True
+  where
+    sql =
+      "UPDATE logs l \
+      \SET collection_id = $3, updated_at = now() \
+      \WHERE l.id = $1 AND l.user_id = $2 \
+      \  AND ($3 IS NULL \
+      \       OR EXISTS (SELECT 1 FROM log_collections c \
+      \                  WHERE c.id = $3 AND c.user_id = $2)) \
+      \RETURNING l.id, l.user_id, l.name, l.description, l.metric_names, \
+      \          l.metric_units, l.start_date, l.collection_id, \
+      \          l.created_at, l.updated_at"
+    encoder =
+      ((\(a,_,_) -> a) >$< E.param (E.nonNullable E.text)) <>
+      ((\(_,b,_) -> b) >$< E.param (E.nonNullable E.text)) <>
+      ((\(_,_,c) -> c) >$< E.param (E.nullable    E.text))
 
 deleteLog :: Statement (LogId, UserId) Int64
 deleteLog = Statement sql encoder D.rowsAffected True
