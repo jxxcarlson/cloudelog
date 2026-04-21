@@ -2,11 +2,20 @@ module LogList exposing (Model, Msg(..), OutMsg(..), init, update, view)
 
 import Api
 import Date
+import Dict exposing (Dict)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
-import Types exposing (Collection, CollectionSummary, Log, LogSummary, Metric)
+import Types exposing (Collection, CollectionSummary, Entry, Log, LogSummary, Metric, StreakStats)
+
+
+type alias LogStatsSummary =
+    { days : Int
+    , skipped : Int
+    , currentStreak : Int
+    , longestStreak : Int
+    }
 
 
 type alias MetricDraft =
@@ -49,6 +58,7 @@ emptyCollectionForm =
 type alias Model =
     { logs : List LogSummary
     , collections : List CollectionSummary
+    , logStats : Dict String LogStatsSummary
     , loading : Bool
     , error : Maybe String
     , form : NewLogForm
@@ -61,6 +71,7 @@ init : ( Model, Cmd Msg )
 init =
     ( { logs = []
       , collections = []
+      , logStats = Dict.empty
       , loading = True
       , error = Nothing
       , form = emptyForm
@@ -76,6 +87,7 @@ init =
 
 type Msg
     = LogsFetched (Result Http.Error (List LogSummary))
+    | LogStatsFetched String (Result Http.Error { log : Log, entries : List Entry, streakStats : StreakStats })
     | CollectionsFetched (Result Http.Error (List CollectionSummary))
     | OpenNewForm
     | CloseNewForm
@@ -112,10 +124,33 @@ update : Msg -> Model -> ( Model, Cmd Msg, OutMsg )
 update msg model =
     case msg of
         LogsFetched (Ok logs) ->
-            ( { model | logs = logs, loading = False, error = Nothing }, Cmd.none, NoOp )
+            ( { model | logs = logs, loading = False, error = Nothing }
+            , Cmd.batch (List.map (\l -> Api.getLog l.id (LogStatsFetched l.id)) logs)
+            , NoOp
+            )
 
         LogsFetched (Err err) ->
             ( { model | loading = False, error = Just (Api.apiErrorToString err) }, Cmd.none, NoOp )
+
+        LogStatsFetched id (Ok detail) ->
+            let
+                summary =
+                    { days = List.length detail.entries
+                    , skipped =
+                        List.length
+                            (List.filter
+                                (\e -> List.all (\v -> v.quantity == 0) e.values)
+                                detail.entries
+                            )
+                    , currentStreak = detail.streakStats.current
+                    , longestStreak = detail.streakStats.longest
+                    }
+            in
+            ( { model | logStats = Dict.insert id summary model.logStats }, Cmd.none, NoOp )
+
+        LogStatsFetched _ (Err _) ->
+            -- silent fail; the row just stays at "—" placeholders.
+            ( model, Cmd.none, NoOp )
 
         CollectionsFetched (Ok cs) ->
             ( { model | collections = cs }, Cmd.none, NoOp )
@@ -496,15 +531,26 @@ viewMetricsEditor metrics =
 
 viewRow : Model -> LogSummary -> Html Msg
 viewRow model l =
+    let
+        statsText =
+            case Dict.get l.id model.logStats of
+                Just s ->
+                    "Days: "
+                        ++ String.fromInt s.days
+                        ++ " · Skipped: "
+                        ++ String.fromInt s.skipped
+                        ++ " · Current streak: "
+                        ++ String.fromInt s.currentStreak
+                        ++ " · Longest streak: "
+                        ++ String.fromInt s.longestStreak
+
+                Nothing ->
+                    "Days: — · Skipped: — · Current streak: — · Longest streak: —"
+    in
     div [ class "row" ]
         [ div [ class "desc", onClick (OpenLog l.id), style "cursor" "pointer" ]
             [ strong [] [ text l.name ]
-            , text (" — " ++ metricsLabel l.metrics)
-            , if String.isEmpty l.description then
-                text ""
-
-              else
-                span [ style "color" "#666" ] [ text (" · " ++ l.description) ]
+            , span [ style "color" "#666" ] [ text (" — " ++ statsText) ]
             ]
         , div [ class "ctrls" ]
             [ case model.pendingDelete of
@@ -525,17 +571,3 @@ viewRow model l =
         ]
 
 
-metricsLabel : List Metric -> String
-metricsLabel metrics =
-    case metrics of
-        [ m ] ->
-            if m.name == m.unit then
-                m.unit
-
-            else
-                m.name ++ " (" ++ m.unit ++ ")"
-
-        _ ->
-            metrics
-                |> List.map (\m -> m.name ++ " (" ++ m.unit ++ ")")
-                |> String.join ", "
