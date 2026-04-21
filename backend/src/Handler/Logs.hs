@@ -207,15 +207,16 @@ deleteLogHandler auth lid = do
 
 toLogResponse :: Log -> LogResponse
 toLogResponse l = LogResponse
-  { logrId          = logId l
-  , logrName        = logName l
-  , logrMetrics     = zipWith MetricSpec
-                        (V.toList (logMetricNames l))
-                        (V.toList (logMetricUnits l))
-  , logrDescription = logDescription l
-  , logrStartDate   = logStartDate l
-  , logrCreatedAt   = logCreatedAt l
-  , logrUpdatedAt   = logUpdatedAt l
+  { logrId           = logId l
+  , logrName         = logName l
+  , logrMetrics      = zipWith MetricSpec
+                         (V.toList (logMetricNames l))
+                         (V.toList (logMetricUnits l))
+  , logrDescription  = logDescription l
+  , logrStartDate    = logStartDate l
+  , logrCollectionId = logCollectionId l
+  , logrCreatedAt    = logCreatedAt l
+  , logrUpdatedAt    = logUpdatedAt l
   }
 
 toEntryResponse :: Entry -> EntryResponse

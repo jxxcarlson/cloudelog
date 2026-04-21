@@ -27,7 +27,7 @@ insertLog = Statement sql encoder (D.singleRow logRow) True
     sql =
       "INSERT INTO logs (id, user_id, name, description, metric_names, metric_units, start_date) \
       \VALUES ($1, $2, $3, $4, $5, $6, $7) \
-      \RETURNING id, user_id, name, description, metric_names, metric_units, start_date, created_at, updated_at"
+      \RETURNING id, user_id, name, description, metric_names, metric_units, start_date, collection_id, created_at, updated_at"
     encoder =
       ((\(a,_,_,_,_,_,_) -> a) >$< E.param (E.nonNullable E.text)) <>
       ((\(_,b,_,_,_,_,_) -> b) >$< E.param (E.nonNullable E.text)) <>
@@ -41,7 +41,7 @@ listLogsByUser :: Statement UserId (Vector Log)
 listLogsByUser = Statement sql encoder (D.rowVector logRow) True
   where
     sql =
-      "SELECT id, user_id, name, description, metric_names, metric_units, start_date, created_at, updated_at \
+      "SELECT id, user_id, name, description, metric_names, metric_units, start_date, collection_id, created_at, updated_at \
       \FROM logs WHERE user_id = $1 ORDER BY updated_at DESC"
     encoder = E.param (E.nonNullable E.text)
 
@@ -50,7 +50,7 @@ getLog :: Statement (LogId, UserId) (Maybe Log)
 getLog = Statement sql encoder (D.rowMaybe logRow) True
   where
     sql =
-      "SELECT id, user_id, name, description, metric_names, metric_units, start_date, created_at, updated_at \
+      "SELECT id, user_id, name, description, metric_names, metric_units, start_date, collection_id, created_at, updated_at \
       \FROM logs WHERE id = $1 AND user_id = $2"
     encoder =
       (fst >$< E.param (E.nonNullable E.text)) <>
@@ -68,7 +68,7 @@ updateLog = Statement sql encoder (D.rowMaybe logRow) True
       "UPDATE logs \
       \SET name = $3, description = $4, metric_names = $5, metric_units = $6, updated_at = now() \
       \WHERE id = $1 AND user_id = $2 \
-      \RETURNING id, user_id, name, description, metric_names, metric_units, start_date, created_at, updated_at"
+      \RETURNING id, user_id, name, description, metric_names, metric_units, start_date, collection_id, created_at, updated_at"
     encoder =
       ((\(a,_,_,_,_,_) -> a) >$< E.param (E.nonNullable E.text)) <>
       ((\(_,b,_,_,_,_) -> b) >$< E.param (E.nonNullable E.text)) <>
@@ -111,5 +111,6 @@ logRow =
     <*> D.column (D.nonNullable textArrayD)          -- metric_names
     <*> D.column (D.nonNullable textArrayD)          -- metric_units
     <*> D.column (D.nonNullable D.date)              -- start_date
+    <*> D.column (D.nullable    D.text)              -- collection_id
     <*> D.column (D.nonNullable D.timestamptz)       -- created_at
     <*> D.column (D.nonNullable D.timestamptz)       -- updated_at

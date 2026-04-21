@@ -63,13 +63,14 @@ data UpdateLogRequest = UpdateLogRequest
 instance FromJSON UpdateLogRequest where parseJSON = genericParseJSON (stripPrefixOptions 3)
 
 data LogResponse = LogResponse
-  { logrId          :: LogId
-  , logrName        :: Text
-  , logrMetrics     :: [MetricSpec]
-  , logrDescription :: Text
-  , logrStartDate   :: Day
-  , logrCreatedAt   :: UTCTime
-  , logrUpdatedAt   :: UTCTime
+  { logrId           :: LogId
+  , logrName         :: Text
+  , logrMetrics      :: [MetricSpec]
+  , logrDescription  :: Text
+  , logrStartDate    :: Day
+  , logrCollectionId :: Maybe Text
+  , logrCreatedAt    :: UTCTime
+  , logrUpdatedAt    :: UTCTime
   } deriving (Show, Generic)
 instance ToJSON LogResponse where toJSON = genericToJSON (stripPrefixOptions 4)
 
@@ -121,3 +122,66 @@ data EntriesListResponse = EntriesListResponse
   { elrEntries :: [EntryResponse]
   } deriving (Show, Generic)
 instance ToJSON EntriesListResponse where toJSON = genericToJSON (stripPrefixOptions 3)
+
+-- Collections -------------------------------------------------------------
+
+data CreateCollectionRequest = CreateCollectionRequest
+  { ccrName        :: Text
+  , ccrDescription :: Maybe Text
+  } deriving (Show, Generic)
+instance FromJSON CreateCollectionRequest where parseJSON = genericParseJSON (stripPrefixOptions 3)
+
+data UpdateCollectionRequest = UpdateCollectionRequest
+  { ucrName        :: Text
+  , ucrDescription :: Text
+  } deriving (Show, Generic)
+instance FromJSON UpdateCollectionRequest where parseJSON = genericParseJSON (stripPrefixOptions 3)
+
+data SetLogCollectionRequest = SetLogCollectionRequest
+  { slcrCollectionId :: Maybe Text
+  } deriving (Show, Generic)
+instance FromJSON SetLogCollectionRequest where parseJSON = genericParseJSON (stripPrefixOptions 4)
+
+data CollectionResponse = CollectionResponse
+  { crId          :: Text
+  , crName        :: Text
+  , crDescription :: Text
+  , crCreatedAt   :: UTCTime
+  , crUpdatedAt   :: UTCTime
+  } deriving (Show, Generic)
+instance ToJSON CollectionResponse where toJSON = genericToJSON (stripPrefixOptions 2)
+
+data CollectionSummaryResponse = CollectionSummaryResponse
+  { csrId          :: Text
+  , csrName        :: Text
+  , csrDescription :: Text
+  , csrMemberCount :: Int
+  , csrCreatedAt   :: UTCTime
+  , csrUpdatedAt   :: UTCTime
+  } deriving (Show, Generic)
+instance ToJSON CollectionSummaryResponse where toJSON = genericToJSON (stripPrefixOptions 3)
+
+data CollectionMember = CollectionMember
+  { cmLog         :: LogResponse
+  , cmEntries     :: [EntryResponse]
+  , cmStreakStats :: StreakStats
+  } deriving (Show, Generic)
+instance ToJSON CollectionMember where toJSON = genericToJSON (stripPrefixOptions 2)
+
+data CollectionDetailResponse = CollectionDetailResponse
+  { cdrCollection :: CollectionResponse
+  , cdrMembers    :: [CollectionMember]
+  } deriving (Show, Generic)
+instance ToJSON CollectionDetailResponse where toJSON = genericToJSON (stripPrefixOptions 3)
+
+data LogEntryItem = LogEntryItem
+  { leiLogId  :: Text
+  , leiValues :: [EntryValue]
+  } deriving (Show, Generic)
+instance FromJSON LogEntryItem where parseJSON = genericParseJSON (stripPrefixOptions 3)
+
+data CombinedEntryRequest = CombinedEntryRequest
+  { cmbEntryDate  :: Day
+  , cmbLogEntries :: [LogEntryItem]
+  } deriving (Show, Generic)
+instance FromJSON CombinedEntryRequest where parseJSON = genericParseJSON (stripPrefixOptions 3)
