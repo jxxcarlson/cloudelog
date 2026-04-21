@@ -5,7 +5,6 @@ module Db.Entry
   , upsertEntry
   , updateEntry
   , deleteEntry
-  , getEntryOwner
   , selectEntryForOwner
   , lockLogForUpdate
   , getLogMetricCount
@@ -124,16 +123,6 @@ deleteEntry = Statement sql encoder decoder True
     encoder =
       (fst >$< E.param (E.nonNullable E.text)) <>
       (snd >$< E.param (E.nonNullable E.text))
-    decoder = D.rowMaybe (D.column (D.nonNullable D.text))
-
--- | Ownership check for an entry by id (used by entry handlers before update/delete).
-getEntryOwner :: Statement EntryId (Maybe UserId)
-getEntryOwner = Statement sql encoder decoder True
-  where
-    sql =
-      "SELECT l.user_id FROM entries e JOIN logs l ON e.log_id = l.id \
-      \WHERE e.id = $1"
-    encoder = E.param (E.nonNullable E.text)
     decoder = D.rowMaybe (D.column (D.nonNullable D.text))
 
 -- | Select the entry scoped to its owner. Returns Nothing if missing or not

@@ -10,7 +10,6 @@ import           AppError                (AppError(..), appErrorToServantErr)
 import qualified Db.Entry                as DbEntry
 import qualified Db.Streak               as DbStreak
 import           Handler.Logs            (requireUser, toEntryResponse)
-import           Control.Monad           (when)
 import           Control.Monad.IO.Class  (liftIO)
 import           Control.Monad.Reader    (asks)
 import           Control.Monad.Except    (throwError)
@@ -45,17 +44,6 @@ postEntryHandler auth lid CreateEntryRequest{..} = do
   mapM_ (validateQuantity . evQuantity) cerValues
   pool <- asks envDbPool
 
-  -- Ingress length check: we need the metric count from the log before we
-  -- can validate values.length. Read it outside the tx for a clean 400.
-  rCount <- liftIO $ Pool.use pool $ Session.statement lid DbEntry.getLogMetricCount
-  mCount0 <- case rCount of
-    Left _  -> throwError $ appErrorToServantErr (Internal "database error")
-    Right n -> pure (fromIntegral n :: Int)
-  when (length cerValues /= mCount0) $
-    throwError $ appErrorToServantErr
-      (BadRequest $ T.pack $ "values must have " <> show mCount0
-                          <> " entries (got " <> show (length cerValues) <> ")")
-
   -- Preflight: compute worst-case number of skip IDs needed.
   preflight <- liftIO $ Pool.use pool $ Session.statement lid DbEntry.maxEntryDate
   mLast <- case preflight of
@@ -75,24 +63,29 @@ postEntryHandler auth lid CreateEntryRequest{..} = do
           | ownerId /= uid -> pure (Left Forbidden)
           | otherwise      -> do
               mCount <- Tx.statement lid DbEntry.getLogMetricCount
-              -- length check already validated at ingress
-              _ <- if null preFillDays
-                     then pure ()
-                     else Tx.statement
-                            ( lid
-                            , V.fromList preFillIds
-                            , V.fromList preFillDays
-                            , mCount
-                            )
-                            DbEntry.insertSkipFills
-              let qs    = V.fromList (map evQuantity cerValues)
-                  descs = V.fromList (map evDescription cerValues)
-              _entry <- Tx.statement
-                          (newEntryId, lid, cerEntryDate, qs, descs)
-                          DbEntry.upsertEntry
-              recomputeStreaksTx lid
-              allEntries <- Tx.statement lid DbEntry.listEntriesByLog
-              pure (Right allEntries)
+              let expectedN = fromIntegral mCount :: Int
+              if length cerValues /= expectedN
+                then pure (Left (BadRequest $ T.pack $
+                        "values must have " <> show expectedN
+                          <> " entries (got " <> show (length cerValues) <> ")"))
+                else do
+                  _ <- if null preFillDays
+                         then pure ()
+                         else Tx.statement
+                                ( lid
+                                , V.fromList preFillIds
+                                , V.fromList preFillDays
+                                , mCount
+                                )
+                                DbEntry.insertSkipFills
+                  let qs    = V.fromList (map evQuantity cerValues)
+                      descs = V.fromList (map evDescription cerValues)
+                  _entry <- Tx.statement
+                              (newEntryId, lid, cerEntryDate, qs, descs)
+                              DbEntry.upsertEntry
+                  recomputeStreaksTx lid
+                  allEntries <- Tx.statement lid DbEntry.listEntriesByLog
+                  pure (Right allEntries)
 
   case result of
     Left _usageErr      -> throwError $ appErrorToServantErr (Internal "database error")
