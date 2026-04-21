@@ -312,7 +312,7 @@ viewRow model l =
     div [ class "row" ]
         [ div [ class "desc", onClick (OpenLog l.id), style "cursor" "pointer" ]
             [ strong [] [ text l.name ]
-            , text (" — " ++ (l.metrics |> List.map .unit |> String.join ", "))
+            , text (" — " ++ metricsLabel l.metrics)
             , if String.isEmpty l.description then
                 text ""
 
@@ -336,3 +336,19 @@ viewRow model l =
                     button [ onClick (AskDelete l.id) ] [ text "Delete" ]
             ]
         ]
+
+
+metricsLabel : List Metric -> String
+metricsLabel metrics =
+    case metrics of
+        [ m ] ->
+            if m.name == m.unit then
+                m.unit
+
+            else
+                m.name ++ " (" ++ m.unit ++ ")"
+
+        _ ->
+            metrics
+                |> List.map (\m -> m.name ++ " (" ++ m.unit ++ ")")
+                |> String.join ", "
