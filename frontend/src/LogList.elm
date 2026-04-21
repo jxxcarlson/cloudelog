@@ -9,11 +9,16 @@ import Http
 import Types exposing (Log, LogSummary, Metric)
 
 
+type alias MetricDraft =
+    { name : String
+    , unit : String
+    }
+
+
 type alias NewLogForm =
     { open : Bool
     , name : String
-    , metricName : String
-    , metricUnit : String
+    , metrics : List MetricDraft
     , description : String
     , startDate : String
     }
@@ -23,8 +28,7 @@ emptyForm : NewLogForm
 emptyForm =
     { open = False
     , name = ""
-    , metricName = ""
-    , metricUnit = ""
+    , metrics = [ { name = "", unit = "" } ]
     , description = ""
     , startDate = ""
     }
@@ -56,11 +60,13 @@ type Msg
     | OpenNewForm
     | CloseNewForm
     | NameChanged String
-    | MetricNameChanged String
-    | MetricUnitChanged String
+    | MetricNameChanged Int String
+    | MetricUnitChanged Int String
+    | AddMetricRow
+    | RemoveMetricRow Int
     | DescriptionChanged String
     | StartDateChanged String
-    | SubmitNew
+    | SubmitNewLog
     | LogCreated (Result Http.Error Log)
     | OpenLog String
     | AskDelete String
@@ -92,11 +98,29 @@ update msg model =
         NameChanged s ->
             ( { model | form = updForm model.form (\f -> { f | name = s }) }, Cmd.none, NoOp )
 
-        MetricNameChanged s ->
-            ( { model | form = updForm model.form (\f -> { f | metricName = s }) }, Cmd.none, NoOp )
+        MetricNameChanged i s ->
+            ( { model | form = updForm model.form (\f -> { f | metrics = updateAt i (\m -> { m | name = s }) f.metrics }) }
+            , Cmd.none
+            , NoOp
+            )
 
-        MetricUnitChanged s ->
-            ( { model | form = updForm model.form (\f -> { f | metricUnit = s }) }, Cmd.none, NoOp )
+        MetricUnitChanged i s ->
+            ( { model | form = updForm model.form (\f -> { f | metrics = updateAt i (\m -> { m | unit = s }) f.metrics }) }
+            , Cmd.none
+            , NoOp
+            )
+
+        AddMetricRow ->
+            ( { model | form = updForm model.form (\f -> { f | metrics = f.metrics ++ [ { name = "", unit = "" } ] }) }
+            , Cmd.none
+            , NoOp
+            )
+
+        RemoveMetricRow i ->
+            ( { model | form = updForm model.form (\f -> { f | metrics = removeAt i f.metrics }) }
+            , Cmd.none
+            , NoOp
+            )
 
         DescriptionChanged s ->
             ( { model | form = updForm model.form (\f -> { f | description = s }) }, Cmd.none, NoOp )
@@ -104,26 +128,22 @@ update msg model =
         StartDateChanged s ->
             ( { model | form = updForm model.form (\f -> { f | startDate = s }) }, Cmd.none, NoOp )
 
-        SubmitNew ->
+        SubmitNewLog ->
             let
                 f =
                     model.form
 
-                metricName =
-                    String.trim f.metricName
-
-                metricUnit =
-                    String.trim f.metricUnit
+                metrics : List Metric
+                metrics =
+                    List.map (\m -> { name = String.trim m.name, unit = String.trim m.unit }) f.metrics
             in
-            if String.isEmpty (String.trim f.name) || String.isEmpty metricName || String.isEmpty metricUnit then
-                ( { model | error = Just "Name, metric name and metric unit are required." }, Cmd.none, NoOp )
+            if String.isEmpty (String.trim f.name) then
+                ( { model | error = Just "Name is required." }, Cmd.none, NoOp )
+
+            else if List.isEmpty metrics || List.any (\m -> String.isEmpty m.name || String.isEmpty m.unit) metrics then
+                ( { model | error = Just "Each metric needs a name and a unit." }, Cmd.none, NoOp )
 
             else
-                let
-                    metrics : List Metric
-                    metrics =
-                        [ { name = metricName, unit = metricUnit } ]
-                in
                 ( model
                 , Api.createLog
                     { name = String.trim f.name
@@ -188,6 +208,26 @@ updForm f g =
     g f
 
 
+updateAt : Int -> (a -> a) -> List a -> List a
+updateAt i f xs =
+    List.indexedMap
+        (\j x ->
+            if i == j then
+                f x
+
+            else
+                x
+        )
+        xs
+
+
+removeAt : Int -> List a -> List a
+removeAt i xs =
+    List.indexedMap Tuple.pair xs
+        |> List.filter (\( j, _ ) -> j /= i)
+        |> List.map Tuple.second
+
+
 view : Model -> Html Msg
 view model =
     div []
@@ -217,10 +257,9 @@ view model =
 
 viewForm : NewLogForm -> Html Msg
 viewForm f =
-    Html.form [ onSubmit SubmitNew ]
+    Html.form [ onSubmit SubmitNewLog ]
         [ input [ placeholder "Name (e.g. Running)", value f.name, onInput NameChanged ] []
-        , input [ placeholder "metric name (e.g. duration)", value f.metricName, onInput MetricNameChanged ] []
-        , input [ placeholder "metric unit (e.g. minutes)", value f.metricUnit, onInput MetricUnitChanged ] []
+        , viewMetricsEditor f.metrics
         , input [ placeholder "description (optional)", value f.description, onInput DescriptionChanged ] []
         , input
             [ type_ "date"
@@ -232,6 +271,39 @@ viewForm f =
         , button [ type_ "submit", class "primary" ] [ text "Create" ]
         , button [ type_ "button", onClick CloseNewForm ] [ text "Cancel" ]
         ]
+
+
+viewMetricRow : Int -> Int -> MetricDraft -> Html Msg
+viewMetricRow total i m =
+    div [ class "metric-row" ]
+        [ input
+            [ placeholder "metric name (e.g. distance)"
+            , value m.name
+            , onInput (MetricNameChanged i)
+            ]
+            []
+        , input
+            [ placeholder "unit (e.g. miles)"
+            , value m.unit
+            , onInput (MetricUnitChanged i)
+            ]
+            []
+        , button
+            [ onClick (RemoveMetricRow i), disabled (total <= 1), type_ "button" ]
+            [ text "Remove" ]
+        ]
+
+
+viewMetricsEditor : List MetricDraft -> Html Msg
+viewMetricsEditor metrics =
+    let
+        total =
+            List.length metrics
+    in
+    div []
+        (List.indexedMap (viewMetricRow total) metrics
+            ++ [ button [ onClick AddMetricRow, type_ "button" ] [ text "+ Add metric" ] ]
+        )
 
 
 viewRow : Model -> LogSummary -> Html Msg
