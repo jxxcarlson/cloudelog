@@ -2,6 +2,7 @@ module Handler.Entries
   ( postEntryHandler
   , updateEntryHandler
   , deleteEntryHandler
+  , recomputeStreaksTx
   ) where
 
 import           Api.RequestTypes

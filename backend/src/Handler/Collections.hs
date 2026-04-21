@@ -14,23 +14,32 @@ import qualified Db.Collection           as DbColl
 import qualified Db.Entry                as DbEntry
 import qualified Db.Log                  as DbLog
 import qualified Db.Streak               as DbStreak
+import           Control.Monad           (when)
 import           Control.Monad.IO.Class  (liftIO)
 import           Control.Monad.Reader    (asks)
 import           Control.Monad.Except    (throwError)
+import           Data.Int                (Int32)
+import qualified Data.Map.Strict         as M
 import           Data.Maybe              (fromMaybe)
 import           Data.Text               (Text)
 import qualified Data.Text               as T
+import           Data.Time.Calendar      (Day)
+import           Data.Time.Clock         (getCurrentTime, utctDay)
 import           Data.UUID               (toText)
 import qualified Data.UUID.V4            as UUID
 import qualified Data.Vector             as V
 import qualified Hasql.Pool              as Pool
 import qualified Hasql.Session           as Session
+import qualified Hasql.Transaction       as Tx
+import qualified Hasql.Transaction.Sessions as Tx
+import qualified Handler.Entries         as HE
 import           Handler.Logs            (requireUser, toEntryResponse, toLogResponse)
 import           Servant                 (NoContent(..))
 import           Servant.Auth.Server     (AuthResult)
 import           Service.Auth            (AuthUser)
+import           Service.SkipFill        (datesToFill)
 import           Types.Collection        (Collection(..))
-import           Types.Common            (LogId, UserId)
+import           Types.Common            (LogCollectionId, LogId, UserId)
 
 listCollectionsHandler :: AuthResult AuthUser -> AppM [CollectionSummaryResponse]
 listCollectionsHandler auth = do
@@ -95,9 +104,136 @@ deleteCollectionHandler auth cid = do
     Right 0 -> throwError $ appErrorToServantErr NotFound
     Right _ -> pure NoContent
 
-combinedEntryHandler :: AuthResult AuthUser -> Text -> CombinedEntryRequest -> AppM CollectionDetailResponse
-combinedEntryHandler _auth _cid _req =
-  throwError $ appErrorToServantErr (Internal "combined-entry not yet implemented")
+combinedEntryHandler
+  :: AuthResult AuthUser -> Text -> CombinedEntryRequest
+  -> AppM CollectionDetailResponse
+combinedEntryHandler auth cid CombinedEntryRequest{..} = do
+  uid   <- requireUser auth
+  pool  <- asks envDbPool
+  today <- liftIO (utctDay <$> getCurrentTime)
+  when (cmbEntryDate > today) $
+    throwError $ appErrorToServantErr (BadRequest "entry date cannot be in the future")
+
+  -- Preflight (outside tx): for each log in the request, read its
+  -- current maxEntryDate to size the skip-fill UUID pool, and fetch
+  -- the log's metric count to validate values-array length. A concurrent
+  -- entry insert could change both between this read and the tx; we
+  -- re-validate inside the tx (length check) and the skip-fill SQL's
+  -- ON CONFLICT DO NOTHING absorbs any race on max dates.
+  let logIds = map leiLogId cmbLogEntries
+  preflightPairs <- mapM (preflightForLog pool) logIds
+  --    preflightPairs :: [(LogId, Maybe Day, Int32)]
+
+  -- Pre-generate UUIDs:
+  --   * one new-entry UUID per request item
+  --   * enough skip-fill UUIDs per item = length (datesToFill mLast entryDate)
+  newIds <- liftIO (generateUuids (length cmbLogEntries))
+  let skipCountsFor (lid, mLast, _) =
+        let d = datesToFill mLast cmbEntryDate
+        in  (lid, length d)
+      perLogSkipCounts = map skipCountsFor preflightPairs
+      totalSkipsNeeded = sum (map snd perLogSkipCounts)
+  skipIdsPool <- liftIO (generateUuids totalSkipsNeeded)
+  let (perLogSkipIds, _) =
+        foldr
+          (\(lid, cnt) (acc, remaining) ->
+              let (taken, rest) = splitAt cnt remaining
+              in  ((lid, taken) : acc, rest))
+          ([], skipIdsPool)
+          perLogSkipCounts
+      skipIdsLookup = M.fromList perLogSkipIds
+
+  result <- liftIO $ Pool.use pool $
+    Tx.transaction Tx.Serializable Tx.Write $
+      combinedEntryTx cid uid cmbEntryDate cmbLogEntries newIds skipIdsLookup preflightPairs
+
+  case result of
+    Left _           -> throwError $ appErrorToServantErr (Internal "database error")
+    Right (Left e)   -> throwError $ appErrorToServantErr e
+    Right (Right ()) -> pure ()
+
+  getCollectionHandler auth cid
+
+-- | Per-log preflight: read max entry date and metric count in two pool
+--   round-trips. Errors surface as a 500.
+preflightForLog :: Pool.Pool -> LogId -> AppM (LogId, Maybe Day, Int32)
+preflightForLog pool lid = do
+  rMax <- liftIO $ Pool.use pool $ Session.statement lid DbEntry.maxEntryDate
+  mMax <- case rMax of
+    Left _  -> throwError $ appErrorToServantErr (Internal "database error")
+    Right m -> pure m
+  rCount <- liftIO $ Pool.use pool $ Session.statement lid DbEntry.getLogMetricCount
+  n <- case rCount of
+    Left _  -> throwError $ appErrorToServantErr (Internal "database error")
+    Right c -> pure c
+  pure (lid, mMax, n)
+
+combinedEntryTx
+  :: LogCollectionId
+  -> UserId
+  -> Day
+  -> [LogEntryItem]
+  -> [Text]
+  -> M.Map LogId [Text]
+  -> [(LogId, Maybe Day, Int32)]
+  -> Tx.Transaction (Either AppError ())
+combinedEntryTx cid uid entryDate items newIds skipIdsLookup preflights = do
+  mColl <- Tx.statement (cid, uid) DbColl.getCollection
+  case mColl of
+    Nothing -> pure (Left NotFound)
+    Just _  -> do
+      memberIdsV <- Tx.statement cid DbColl.getCollectionMembers
+      let memberIds = V.toList memberIdsV
+          requestIds = map leiLogId items
+          notMembers = filter (`notElem` memberIds) requestIds
+      if not (null notMembers)
+        then pure (Left (BadRequest (T.pack ("log is not a member of this collection: "
+                                             <> T.unpack (T.intercalate ", " notMembers)))))
+        else processItems entryDate skipIdsLookup (zip3 items newIds preflights)
+
+processItems
+  :: Day
+  -> M.Map LogId [Text]
+  -> [(LogEntryItem, Text, (LogId, Maybe Day, Int32))]
+  -> Tx.Transaction (Either AppError ())
+processItems _ _ [] = pure (Right ())
+processItems entryDate skipIds ((LogEntryItem lid vs, newId, (_, _mLast, mCount)) : rest) = do
+  mUserId <- Tx.statement lid DbEntry.lockLogForUpdate
+  case mUserId of
+    Nothing -> pure (Left NotFound)
+    Just _  -> do
+      let expectedN = fromIntegral mCount :: Int
+      if length vs /= expectedN
+        then pure (Left (BadRequest (T.pack
+                ("values must have " <> show expectedN
+                  <> " entries (got " <> show (length vs) <> ") for log " <> T.unpack lid))))
+        else do
+          -- Re-read maxEntryDate inside the tx to get a consistent snapshot.
+          mMax <- Tx.statement lid DbEntry.maxEntryDate
+          let fillDays     = datesToFill mMax entryDate
+              allSkipIds   = fromMaybe [] (M.lookup lid skipIds)
+              skipIdsToUse = take (length fillDays) allSkipIds
+          _ <- if null fillDays
+                 then pure ()
+                 else Tx.statement
+                        ( lid
+                        , V.fromList skipIdsToUse
+                        , V.fromList fillDays
+                        , mCount
+                        )
+                        DbEntry.insertSkipFills
+          let qs    = V.fromList (map evQuantity vs)
+              descs = V.fromList (map evDescription vs)
+          _entry <- Tx.statement
+                      (newId, lid, entryDate, qs, descs)
+                      DbEntry.upsertEntry
+          HE.recomputeStreaksTx lid
+          processItems entryDate skipIds rest
+
+generateUuids :: Int -> IO [Text]
+generateUuids n
+  | n <= 0    = pure []
+  | otherwise = mapM (\_ -> toText <$> UUID.nextRandom) [1..n]
 
 ---------------------------------------------------------------
 -- helpers
