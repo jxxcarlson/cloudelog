@@ -6,6 +6,11 @@ module Types exposing
     , EntryValue
     , Metric
     , StreakStats
+    , Collection
+    , CollectionSummary
+    , CollectionMember
+    , CollectionDetail
+    , CombinedTotal
     )
 
 import Date exposing (Date)
@@ -30,6 +35,7 @@ type alias LogSummary =
     , metrics : List Metric
     , description : String
     , startDate : Date
+    , collectionId : Maybe String
     , createdAt : Posix
     , updatedAt : Posix
     }
@@ -41,6 +47,7 @@ type alias Log =
     , metrics : List Metric
     , description : String
     , startDate : Date
+    , collectionId : Maybe String
     , createdAt : Posix
     , updatedAt : Posix
     }
@@ -64,4 +71,45 @@ type alias StreakStats =
     { current : Int
     , average : Maybe Float
     , longest : Int
+    }
+
+
+type alias Collection =
+    { id : String
+    , name : String
+    , description : String
+    , createdAt : Posix
+    , updatedAt : Posix
+    }
+
+
+type alias CollectionSummary =
+    { id : String
+    , name : String
+    , description : String
+    , memberCount : Int
+    , createdAt : Posix
+    , updatedAt : Posix
+    }
+
+
+type alias CollectionMember =
+    { log : Log
+    , entries : List Entry
+    , streakStats : StreakStats
+    }
+
+
+type alias CollectionDetail =
+    { collection : Collection
+    , members : List CollectionMember
+    }
+
+
+type alias CombinedTotal =
+    { unit : String
+    , total : Float
+    , average : Maybe Float
+    , days : Int
+    , contributors : Int
     }

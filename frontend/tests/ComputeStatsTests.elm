@@ -15,6 +15,7 @@ mkLog metrics =
     , metrics = metrics
     , description = ""
     , startDate = fromRataDie 1
+    , collectionId = Nothing
     , createdAt = Time.millisToPosix 0
     , updatedAt = Time.millisToPosix 0
     }

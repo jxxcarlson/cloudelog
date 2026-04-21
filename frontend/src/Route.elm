@@ -9,6 +9,7 @@ type Route
     | Login
     | Signup
     | LogDetail String
+    | CollectionDetail String
     | NotFound
 
 
@@ -19,6 +20,7 @@ parser =
         , P.map Login (s "login")
         , P.map Signup (s "signup")
         , P.map LogDetail (s "logs" </> string)
+        , P.map CollectionDetail (s "collections" </> string)
         ]
 
 
@@ -41,6 +43,9 @@ toString r =
 
         LogDetail id ->
             "/logs/" ++ id
+
+        CollectionDetail id ->
+            "/collections/" ++ id
 
         NotFound ->
             "/"

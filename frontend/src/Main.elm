@@ -257,6 +257,10 @@ goto model route =
             -- Today not loaded yet; stay on Loading.
             ( { base | page = PageLoading }, Cmd.none )
 
+        ( CollectionDetail _, Just _, _ ) ->
+            -- Collection detail UI lands in a later task; for now show NotFound.
+            ( { base | page = PageNotFound }, Cmd.none )
+
         ( NotFound, _, _ ) ->
             ( { base | page = PageNotFound }, Cmd.none )
 

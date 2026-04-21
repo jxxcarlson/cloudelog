@@ -13,10 +13,21 @@ module Api exposing
     , postEntry
     , updateEntry
     , deleteEntry
+    , listCollections
+    , getCollection
+    , createCollection
+    , updateCollection
+    , deleteCollection
+    , setLogCollection
+    , postCombinedEntry
     , logDecoder
     , logSummaryDecoder
     , entryDecoder
     , streakStatsDecoder
+    , collectionDecoder
+    , collectionSummaryDecoder
+    , collectionMemberDecoder
+    , collectionDetailDecoder
     )
 
 import Date exposing (Date)
@@ -24,7 +35,20 @@ import Http
 import Iso8601
 import Json.Decode as D
 import Json.Encode as E
-import Types exposing (Entry, EntryValue, Log, LogSummary, Metric, StreakStats, User)
+import Types
+    exposing
+        ( Collection
+        , CollectionDetail
+        , CollectionMember
+        , CollectionSummary
+        , Entry
+        , EntryValue
+        , Log
+        , LogSummary
+        , Metric
+        , StreakStats
+        , User
+        )
 
 
 apiBase : String
@@ -304,6 +328,135 @@ deleteEntry entryId toMsg =
 
 
 ---------------------------------------------------------------
+-- collections
+---------------------------------------------------------------
+
+
+listCollections : (Result Http.Error (List CollectionSummary) -> msg) -> Cmd msg
+listCollections toMsg =
+    cookieRequest
+        { method = "GET"
+        , url = apiBase ++ "/api/collections"
+        , body = Http.emptyBody
+        , expect = Http.expectJson toMsg (D.list collectionSummaryDecoder)
+        }
+
+
+getCollection : String -> (Result Http.Error CollectionDetail -> msg) -> Cmd msg
+getCollection cid toMsg =
+    cookieRequest
+        { method = "GET"
+        , url = apiBase ++ "/api/collections/" ++ cid
+        , body = Http.emptyBody
+        , expect = Http.expectJson toMsg collectionDetailDecoder
+        }
+
+
+createCollection :
+    { name : String, description : String }
+    -> (Result Http.Error Collection -> msg)
+    -> Cmd msg
+createCollection { name, description } toMsg =
+    cookieRequest
+        { method = "POST"
+        , url = apiBase ++ "/api/collections"
+        , body =
+            Http.jsonBody
+                (E.object
+                    [ ( "name", E.string name )
+                    , ( "description", E.string description )
+                    ]
+                )
+        , expect = Http.expectJson toMsg collectionDecoder
+        }
+
+
+updateCollection :
+    String
+    -> { name : String, description : String }
+    -> (Result Http.Error Collection -> msg)
+    -> Cmd msg
+updateCollection cid { name, description } toMsg =
+    cookieRequest
+        { method = "PUT"
+        , url = apiBase ++ "/api/collections/" ++ cid
+        , body =
+            Http.jsonBody
+                (E.object
+                    [ ( "name", E.string name )
+                    , ( "description", E.string description )
+                    ]
+                )
+        , expect = Http.expectJson toMsg collectionDecoder
+        }
+
+
+deleteCollection : String -> (Result Http.Error () -> msg) -> Cmd msg
+deleteCollection cid toMsg =
+    cookieRequest
+        { method = "DELETE"
+        , url = apiBase ++ "/api/collections/" ++ cid
+        , body = Http.emptyBody
+        , expect = Http.expectWhatever toMsg
+        }
+
+
+setLogCollection : String -> Maybe String -> (Result Http.Error Log -> msg) -> Cmd msg
+setLogCollection logId mCollectionId toMsg =
+    cookieRequest
+        { method = "PUT"
+        , url = apiBase ++ "/api/logs/" ++ logId ++ "/collection"
+        , body =
+            Http.jsonBody
+                (E.object
+                    [ ( "collectionId"
+                      , case mCollectionId of
+                            Just c ->
+                                E.string c
+
+                            Nothing ->
+                                E.null
+                      )
+                    ]
+                )
+        , expect = Http.expectJson toMsg logDecoder
+        }
+
+
+postCombinedEntry :
+    String
+    ->
+        { entryDate : Date
+        , logEntries : List { logId : String, values : List EntryValue }
+        }
+    -> (Result Http.Error CollectionDetail -> msg)
+    -> Cmd msg
+postCombinedEntry cid { entryDate, logEntries } toMsg =
+    cookieRequest
+        { method = "POST"
+        , url = apiBase ++ "/api/collections/" ++ cid ++ "/entries"
+        , body =
+            Http.jsonBody
+                (E.object
+                    [ ( "entryDate", E.string (Date.toIsoString entryDate) )
+                    , ( "logEntries"
+                      , E.list
+                            (\le ->
+                                E.object
+                                    [ ( "logId", E.string le.logId )
+                                    , ( "values", E.list entryValueEncoder le.values )
+                                    ]
+                            )
+                            logEntries
+                      )
+                    ]
+                )
+        , expect = Http.expectJson toMsg collectionDetailDecoder
+        }
+
+
+
+---------------------------------------------------------------
 -- encoders
 ---------------------------------------------------------------
 
@@ -353,26 +506,64 @@ entryValueDecoder =
 
 logDecoder : D.Decoder Log
 logDecoder =
-    D.map7 Log
+    D.map8 Log
         (D.field "id" D.string)
         (D.field "name" D.string)
         (D.field "metrics" (D.list metricDecoder))
         (D.field "description" D.string)
         (D.field "startDate" dateDecoder)
+        (D.field "collectionId" (D.nullable D.string))
         (D.field "createdAt" Iso8601.decoder)
         (D.field "updatedAt" Iso8601.decoder)
 
 
 logSummaryDecoder : D.Decoder LogSummary
 logSummaryDecoder =
-    D.map7 LogSummary
+    D.map8 LogSummary
         (D.field "id" D.string)
         (D.field "name" D.string)
         (D.field "metrics" (D.list metricDecoder))
         (D.field "description" D.string)
         (D.field "startDate" dateDecoder)
+        (D.field "collectionId" (D.nullable D.string))
         (D.field "createdAt" Iso8601.decoder)
         (D.field "updatedAt" Iso8601.decoder)
+
+
+collectionDecoder : D.Decoder Collection
+collectionDecoder =
+    D.map5 Collection
+        (D.field "id" D.string)
+        (D.field "name" D.string)
+        (D.field "description" D.string)
+        (D.field "createdAt" Iso8601.decoder)
+        (D.field "updatedAt" Iso8601.decoder)
+
+
+collectionSummaryDecoder : D.Decoder CollectionSummary
+collectionSummaryDecoder =
+    D.map6 CollectionSummary
+        (D.field "id" D.string)
+        (D.field "name" D.string)
+        (D.field "description" D.string)
+        (D.field "memberCount" D.int)
+        (D.field "createdAt" Iso8601.decoder)
+        (D.field "updatedAt" Iso8601.decoder)
+
+
+collectionMemberDecoder : D.Decoder CollectionMember
+collectionMemberDecoder =
+    D.map3 CollectionMember
+        (D.field "log" logDecoder)
+        (D.field "entries" (D.list entryDecoder))
+        (D.field "streakStats" streakStatsDecoder)
+
+
+collectionDetailDecoder : D.Decoder CollectionDetail
+collectionDetailDecoder =
+    D.map2 CollectionDetail
+        (D.field "collection" collectionDecoder)
+        (D.field "members" (D.list collectionMemberDecoder))
 
 
 entryDecoder : D.Decoder Entry

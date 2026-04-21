@@ -169,6 +169,7 @@ update msg model =
                     , metrics = log.metrics
                     , description = log.description
                     , startDate = log.startDate
+                    , collectionId = log.collectionId
                     , createdAt = log.createdAt
                     , updatedAt = log.updatedAt
                     }
