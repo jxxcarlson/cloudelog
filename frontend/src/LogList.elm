@@ -6,7 +6,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
-import Types exposing (Log, LogSummary, Metric)
+import Types exposing (Collection, CollectionSummary, Log, LogSummary, Metric)
 
 
 type alias MetricDraft =
@@ -34,11 +34,25 @@ emptyForm =
     }
 
 
+type alias NewCollectionForm =
+    { open : Bool
+    , name : String
+    , description : String
+    }
+
+
+emptyCollectionForm : NewCollectionForm
+emptyCollectionForm =
+    { open = False, name = "", description = "" }
+
+
 type alias Model =
     { logs : List LogSummary
+    , collections : List CollectionSummary
     , loading : Bool
     , error : Maybe String
     , form : NewLogForm
+    , collectionForm : NewCollectionForm
     , pendingDelete : Maybe String
     }
 
@@ -46,17 +60,23 @@ type alias Model =
 init : ( Model, Cmd Msg )
 init =
     ( { logs = []
+      , collections = []
       , loading = True
       , error = Nothing
       , form = emptyForm
+      , collectionForm = emptyCollectionForm
       , pendingDelete = Nothing
       }
-    , Api.listLogs LogsFetched
+    , Cmd.batch
+        [ Api.listLogs LogsFetched
+        , Api.listCollections CollectionsFetched
+        ]
     )
 
 
 type Msg
     = LogsFetched (Result Http.Error (List LogSummary))
+    | CollectionsFetched (Result Http.Error (List CollectionSummary))
     | OpenNewForm
     | CloseNewForm
     | NameChanged String
@@ -69,6 +89,13 @@ type Msg
     | SubmitNewLog
     | LogCreated (Result Http.Error Log)
     | OpenLog String
+    | OpenCollection String
+    | OpenNewCollection
+    | CloseNewCollection
+    | CollNameChanged String
+    | CollDescriptionChanged String
+    | SubmitNewCollection
+    | CollectionCreated (Result Http.Error Collection)
     | AskDelete String
     | CancelDelete
     | ConfirmDelete String
@@ -78,6 +105,7 @@ type Msg
 type OutMsg
     = NoOp
     | NavigateToLog String
+    | NavigateToCollection String
 
 
 update : Msg -> Model -> ( Model, Cmd Msg, OutMsg )
@@ -88,6 +116,12 @@ update msg model =
 
         LogsFetched (Err err) ->
             ( { model | loading = False, error = Just (Api.apiErrorToString err) }, Cmd.none, NoOp )
+
+        CollectionsFetched (Ok cs) ->
+            ( { model | collections = cs }, Cmd.none, NoOp )
+
+        CollectionsFetched (Err err) ->
+            ( { model | error = Just (Api.apiErrorToString err) }, Cmd.none, NoOp )
 
         OpenNewForm ->
             ( { model | form = { emptyForm | open = True } }, Cmd.none, NoOp )
@@ -185,6 +219,52 @@ update msg model =
         OpenLog id ->
             ( model, Cmd.none, NavigateToLog id )
 
+        OpenCollection id ->
+            ( model, Cmd.none, NavigateToCollection id )
+
+        OpenNewCollection ->
+            ( { model | collectionForm = { emptyCollectionForm | open = True } }, Cmd.none, NoOp )
+
+        CloseNewCollection ->
+            ( { model | collectionForm = emptyCollectionForm }, Cmd.none, NoOp )
+
+        CollNameChanged s ->
+            ( { model | collectionForm = updCollectionForm model.collectionForm (\f -> { f | name = s }) }
+            , Cmd.none
+            , NoOp
+            )
+
+        CollDescriptionChanged s ->
+            ( { model | collectionForm = updCollectionForm model.collectionForm (\f -> { f | description = s }) }
+            , Cmd.none
+            , NoOp
+            )
+
+        SubmitNewCollection ->
+            let
+                f =
+                    model.collectionForm
+            in
+            if String.isEmpty (String.trim f.name) then
+                ( { model | error = Just "Collection name is required." }, Cmd.none, NoOp )
+
+            else
+                ( model
+                , Api.createCollection
+                    { name = String.trim f.name, description = f.description }
+                    CollectionCreated
+                , NoOp
+                )
+
+        CollectionCreated (Ok _) ->
+            ( { model | collectionForm = emptyCollectionForm, error = Nothing }
+            , Api.listCollections CollectionsFetched
+            , NoOp
+            )
+
+        CollectionCreated (Err err) ->
+            ( { model | error = Just (Api.apiErrorToString err) }, Cmd.none, NoOp )
+
         AskDelete id ->
             ( { model | pendingDelete = Just id }, Cmd.none, NoOp )
 
@@ -206,6 +286,11 @@ update msg model =
 
 updForm : NewLogForm -> (NewLogForm -> NewLogForm) -> NewLogForm
 updForm f g =
+    g f
+
+
+updCollectionForm : NewCollectionForm -> (NewCollectionForm -> NewCollectionForm) -> NewCollectionForm
+updCollectionForm f g =
     g f
 
 
@@ -231,6 +316,10 @@ removeAt i xs =
 
 view : Model -> Html Msg
 view model =
+    let
+        standaloneLogs =
+            List.filter (\l -> l.collectionId == Nothing) model.logs
+    in
     div []
         [ h1 [] [ text "Your logs" ]
         , case model.error of
@@ -239,20 +328,84 @@ view model =
 
             Nothing ->
                 text ""
+        , viewActionButtons model
         , if model.form.open then
             viewForm model.form
 
           else
-            button [ class "primary", onClick OpenNewForm ] [ text "+ New log" ]
-        , div [] (List.map (viewRow model) model.logs)
+            text ""
+        , if model.collectionForm.open then
+            viewCollectionForm model.collectionForm
+
+          else
+            text ""
+        , viewCollections model.collections
+        , h3 [] [ text "Logs" ]
+        , div [] (List.map (viewRow model) standaloneLogs)
         , if model.loading then
             p [] [ text "Loading..." ]
 
-          else if List.isEmpty model.logs && not model.form.open then
+          else if List.isEmpty standaloneLogs && not model.form.open then
             p [] [ text "No logs yet. Create one above." ]
 
           else
             text ""
+        ]
+
+
+viewActionButtons : Model -> Html Msg
+viewActionButtons model =
+    div [ style "display" "flex", style "gap" "0.5rem", style "margin-bottom" "0.75rem" ]
+        [ if model.form.open then
+            text ""
+
+          else
+            button [ class "primary", onClick OpenNewForm ] [ text "+ New log" ]
+        , if model.collectionForm.open then
+            text ""
+
+          else
+            button [ onClick OpenNewCollection ] [ text "+ New collection" ]
+        ]
+
+
+viewCollections : List CollectionSummary -> Html Msg
+viewCollections cs =
+    if List.isEmpty cs then
+        text ""
+
+    else
+        div []
+            [ h3 [] [ text "Collections" ]
+            , div [] (List.map viewCollectionRow cs)
+            ]
+
+
+viewCollectionRow : CollectionSummary -> Html Msg
+viewCollectionRow c =
+    div
+        [ class "row"
+        , onClick (OpenCollection c.id)
+        , style "cursor" "pointer"
+        ]
+        [ div [ class "desc" ]
+            [ strong [] [ text c.name ]
+            , text
+                (" — "
+                    ++ String.fromInt c.memberCount
+                    ++ (if c.memberCount == 1 then
+                            " log"
+
+                        else
+                            " logs"
+                       )
+                )
+            , if String.isEmpty c.description then
+                text ""
+
+              else
+                div [ style "color" "#555", style "font-size" "0.9rem" ] [ text c.description ]
+            ]
         ]
 
 
@@ -271,6 +424,26 @@ viewForm f =
             []
         , button [ type_ "submit", class "primary" ] [ text "Create" ]
         , button [ type_ "button", onClick CloseNewForm ] [ text "Cancel" ]
+        ]
+
+
+viewCollectionForm : NewCollectionForm -> Html Msg
+viewCollectionForm f =
+    Html.form [ onSubmit SubmitNewCollection ]
+        [ input
+            [ placeholder "Collection name (e.g. Fitness)"
+            , value f.name
+            , onInput CollNameChanged
+            ]
+            []
+        , input
+            [ placeholder "description (optional)"
+            , value f.description
+            , onInput CollDescriptionChanged
+            ]
+            []
+        , button [ type_ "submit", class "primary" ] [ text "Create collection" ]
+        , button [ type_ "button", onClick CloseNewCollection ] [ text "Cancel" ]
         ]
 
 

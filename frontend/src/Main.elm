@@ -171,6 +171,11 @@ update msg model =
                             , Cmd.batch [ Cmd.map LogListMsg subCmd, Nav.pushUrl model.key ("/logs/" ++ id) ]
                             )
 
+                        LogList.NavigateToCollection id ->
+                            ( { model | page = PageLogList newSub }
+                            , Cmd.batch [ Cmd.map LogListMsg subCmd, Nav.pushUrl model.key ("/collections/" ++ id) ]
+                            )
+
                         LogList.NoOp ->
                             base
 
