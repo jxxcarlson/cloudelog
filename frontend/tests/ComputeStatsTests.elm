@@ -18,7 +18,11 @@ dateMonth n =
 
 e : String -> Date -> Float -> Entry
 e eid dt q =
-    { id = eid, logId = "L1", date = dt, quantity = q, description = "" }
+    { id = eid
+    , logId = "L1"
+    , date = dt
+    , values = [ { quantity = q, description = "" } ]
+    }
 
 
 suite : Test

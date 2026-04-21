@@ -6,7 +6,17 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
-import Types exposing (Entry, Log, StreakStats, Unit(..), unitToString)
+import Types exposing (Entry, EntryValue, Log, StreakStats)
+
+
+firstValueQuantity : Entry -> Float
+firstValueQuantity en =
+    en.values |> List.head |> Maybe.map .quantity |> Maybe.withDefault 0
+
+
+firstValueDescription : Entry -> String
+firstValueDescription en =
+    en.values |> List.head |> Maybe.map .description |> Maybe.withDefault ""
 
 
 
@@ -35,13 +45,13 @@ computeStats entries today =
                     Date.diff Date.Days first.date today + 1
 
                 skipped =
-                    List.length (List.filter (\en -> en.quantity == 0) entries)
+                    List.length (List.filter (\en -> firstValueQuantity en == 0) entries)
 
                 total =
-                    List.sum (List.map .quantity entries)
+                    List.sum (List.map firstValueQuantity entries)
 
                 active =
-                    List.length (List.filter (\en -> en.quantity /= 0) entries)
+                    List.length (List.filter (\en -> firstValueQuantity en /= 0) entries)
 
                 average =
                     if active > 0 then
@@ -162,7 +172,9 @@ update msg model =
                 Just q ->
                     ( { model | submitting = True, error = Nothing }
                     , Api.postEntry model.logId
-                        { entryDate = model.today, quantity = q, description = model.newDesc }
+                        { entryDate = model.today
+                        , values = [ { quantity = q, description = model.newDesc } ]
+                        }
                         EntryPosted
                     , NoOp
                     )
@@ -202,8 +214,8 @@ update msg model =
                 | editing =
                     Just
                         { entryId = e.id
-                        , qty = String.fromFloat e.quantity
-                        , desc = e.description
+                        , qty = String.fromFloat (firstValueQuantity e)
+                        , desc = firstValueDescription e
                         , submitting = False
                         }
                 , error = Nothing
@@ -237,7 +249,9 @@ update msg model =
                     case String.toFloat (String.trim d.qty) of
                         Just q ->
                             ( { model | editing = Just { d | submitting = True }, error = Nothing }
-                            , Api.updateEntry d.entryId { quantity = q, description = d.desc } EditSaved
+                            , Api.updateEntry d.entryId
+                                { values = [ { quantity = q, description = d.desc } ] }
+                                EditSaved
                             , NoOp
                             )
 
@@ -298,7 +312,7 @@ update msg model =
                 ( Just log, Just d ) ->
                     ( { model | editingDesc = Just { d | submitting = True }, error = Nothing }
                     , Api.updateLog log.id
-                        { name = log.name, description = d.text, unit = Nothing }
+                        { name = log.name, description = d.text, metrics = Nothing }
                         DescSaved
                     , NoOp
                     )
@@ -345,7 +359,7 @@ view model =
             div []
                 [ h1 [] [ text log.name ]
                 , p []
-                    [ text ("Unit: " ++ unitToString log.unit)
+                    [ text ("Unit: " ++ (log.metrics |> List.map .unit |> String.join ", "))
                     , text (" · since " ++ Date.toIsoString log.startDate)
                     ]
                 , viewStats stats
@@ -579,16 +593,23 @@ viewEntryRow editing e =
 
 viewReadRow : Entry -> Html Msg
 viewReadRow e =
+    let
+        q =
+            firstValueQuantity e
+
+        descr =
+            firstValueDescription e
+    in
     div [ class "row" ]
         [ div [ class "date" ] [ text (Date.toIsoString e.date) ]
-        , div [ class "qty" ] [ text (String.fromFloat e.quantity) ]
+        , div [ class "qty" ] [ text (String.fromFloat q) ]
         , div [ class "desc" ]
             [ text
-                (if e.quantity == 0 && String.isEmpty e.description then
+                (if q == 0 && String.isEmpty descr then
                     "(skipped)"
 
                  else
-                    e.description
+                    descr
                 )
             ]
         , div [ class "ctrls" ]

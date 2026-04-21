@@ -3,10 +3,9 @@ module Types exposing
     , Log
     , LogSummary
     , Entry
+    , EntryValue
+    , Metric
     , StreakStats
-    , Unit(..)
-    , unitToString
-    , unitFromString
     )
 
 import Date exposing (Date)
@@ -19,10 +18,16 @@ type alias User =
     }
 
 
+type alias Metric =
+    { name : String
+    , unit : String
+    }
+
+
 type alias LogSummary =
     { id : String
     , name : String
-    , unit : Unit
+    , metrics : List Metric
     , description : String
     , startDate : Date
     , createdAt : Posix
@@ -33,7 +38,7 @@ type alias LogSummary =
 type alias Log =
     { id : String
     , name : String
-    , unit : Unit
+    , metrics : List Metric
     , description : String
     , startDate : Date
     , createdAt : Posix
@@ -41,12 +46,17 @@ type alias Log =
     }
 
 
+type alias EntryValue =
+    { quantity : Float
+    , description : String
+    }
+
+
 type alias Entry =
     { id : String
     , logId : String
     , date : Date
-    , quantity : Float
-    , description : String
+    , values : List EntryValue
     }
 
 
@@ -55,49 +65,3 @@ type alias StreakStats =
     , average : Maybe Float
     , longest : Int
     }
-
-
-type Unit
-    = Minutes
-    | Hours
-    | Kilometers
-    | Miles
-    | Custom String
-
-
-unitToString : Unit -> String
-unitToString u =
-    case u of
-        Minutes ->
-            "minutes"
-
-        Hours ->
-            "hours"
-
-        Kilometers ->
-            "kilometers"
-
-        Miles ->
-            "miles"
-
-        Custom s ->
-            s
-
-
-unitFromString : String -> Unit
-unitFromString raw =
-    case String.toLower raw of
-        "minutes" ->
-            Minutes
-
-        "hours" ->
-            Hours
-
-        "kilometers" ->
-            Kilometers
-
-        "miles" ->
-            Miles
-
-        _ ->
-            Custom raw

@@ -25,7 +25,7 @@ import Iso8601
 import Json.Decode as D
 import Json.Encode as E
 import Time exposing (Posix)
-import Types exposing (Entry, Log, LogSummary, StreakStats, Unit(..), User, unitFromString, unitToString)
+import Types exposing (Entry, EntryValue, Log, LogSummary, Metric, StreakStats, User)
 
 
 apiBase : String
@@ -163,21 +163,25 @@ listLogs toMsg =
 
 
 createLog :
-    { name : String, unit : String, description : String, startDate : Maybe String }
+    { name : String
+    , metrics : List Metric
+    , description : String
+    , startDate : Maybe Date
+    }
     -> (Result Http.Error Log -> msg)
     -> Cmd msg
-createLog { name, unit, description, startDate } toMsg =
+createLog { name, metrics, description, startDate } toMsg =
     let
         baseFields =
             [ ( "name", E.string name )
-            , ( "unit", E.string unit )
+            , ( "metrics", E.list metricEncoder metrics )
             , ( "description", E.string description )
             ]
 
         fields =
             case startDate of
-                Just s ->
-                    baseFields ++ [ ( "startDate", E.string s ) ]
+                Just d ->
+                    baseFields ++ [ ( "startDate", E.string (Date.toIsoString d) ) ]
 
                 Nothing ->
                     baseFields
@@ -211,10 +215,10 @@ getLog logId toMsg =
 
 updateLog :
     String
-    -> { name : String, description : String, unit : Maybe String }
+    -> { name : String, description : String, metrics : Maybe (List Metric) }
     -> (Result Http.Error Log -> msg)
     -> Cmd msg
-updateLog logId { name, description, unit } toMsg =
+updateLog logId { name, description, metrics } toMsg =
     let
         base =
             [ ( "name", E.string name )
@@ -222,9 +226,9 @@ updateLog logId { name, description, unit } toMsg =
             ]
 
         fields =
-            case unit of
-                Just u ->
-                    base ++ [ ( "unit", E.string u ) ]
+            case metrics of
+                Just ms ->
+                    base ++ [ ( "metrics", E.list metricEncoder ms ) ]
 
                 Nothing ->
                     base
@@ -255,10 +259,10 @@ deleteLog logId toMsg =
 
 postEntry :
     String
-    -> { entryDate : Date, quantity : Float, description : String }
+    -> { entryDate : Date, values : List EntryValue }
     -> (Result Http.Error (List Entry) -> msg)
     -> Cmd msg
-postEntry logId { entryDate, quantity, description } toMsg =
+postEntry logId { entryDate, values } toMsg =
     cookieRequest
         { method = "POST"
         , url = apiBase ++ "/api/logs/" ++ logId ++ "/entries"
@@ -266,8 +270,7 @@ postEntry logId { entryDate, quantity, description } toMsg =
             Http.jsonBody <|
                 E.object
                     [ ( "entryDate", E.string (Date.toIsoString entryDate) )
-                    , ( "quantity", E.float quantity )
-                    , ( "description", E.string description )
+                    , ( "values", E.list entryValueEncoder values )
                     ]
         , expect =
             Http.expectJson toMsg (D.field "entries" (D.list entryDecoder))
@@ -276,19 +279,16 @@ postEntry logId { entryDate, quantity, description } toMsg =
 
 updateEntry :
     String
-    -> { quantity : Float, description : String }
+    -> { values : List EntryValue }
     -> (Result Http.Error Entry -> msg)
     -> Cmd msg
-updateEntry entryId { quantity, description } toMsg =
+updateEntry entryId { values } toMsg =
     cookieRequest
         { method = "PUT"
         , url = apiBase ++ "/api/entries/" ++ entryId
         , body =
             Http.jsonBody <|
-                E.object
-                    [ ( "quantity", E.float quantity )
-                    , ( "description", E.string description )
-                    ]
+                E.object [ ( "values", E.list entryValueEncoder values ) ]
         , expect = Http.expectJson toMsg entryDecoder
         }
 
@@ -305,6 +305,28 @@ deleteEntry entryId toMsg =
 
 
 ---------------------------------------------------------------
+-- encoders
+---------------------------------------------------------------
+
+
+metricEncoder : Metric -> E.Value
+metricEncoder m =
+    E.object
+        [ ( "name", E.string m.name )
+        , ( "unit", E.string m.unit )
+        ]
+
+
+entryValueEncoder : EntryValue -> E.Value
+entryValueEncoder v =
+    E.object
+        [ ( "quantity", E.float v.quantity )
+        , ( "description", E.string v.description )
+        ]
+
+
+
+---------------------------------------------------------------
 -- decoders
 ---------------------------------------------------------------
 
@@ -316,9 +338,18 @@ userDecoder =
         (D.field "email" D.string)
 
 
-unitDecoder : D.Decoder Unit
-unitDecoder =
-    D.map unitFromString D.string
+metricDecoder : D.Decoder Metric
+metricDecoder =
+    D.map2 Metric
+        (D.field "name" D.string)
+        (D.field "unit" D.string)
+
+
+entryValueDecoder : D.Decoder EntryValue
+entryValueDecoder =
+    D.map2 EntryValue
+        (D.field "quantity" D.float)
+        (D.field "description" D.string)
 
 
 logDecoder : D.Decoder Log
@@ -326,7 +357,7 @@ logDecoder =
     D.map7 Log
         (D.field "id" D.string)
         (D.field "name" D.string)
-        (D.field "unit" unitDecoder)
+        (D.field "metrics" (D.list metricDecoder))
         (D.field "description" D.string)
         (D.field "startDate" dateDecoder)
         (D.field "createdAt" Iso8601.decoder)
@@ -338,7 +369,7 @@ logSummaryDecoder =
     D.map7 LogSummary
         (D.field "id" D.string)
         (D.field "name" D.string)
-        (D.field "unit" unitDecoder)
+        (D.field "metrics" (D.list metricDecoder))
         (D.field "description" D.string)
         (D.field "startDate" dateDecoder)
         (D.field "createdAt" Iso8601.decoder)
@@ -347,12 +378,11 @@ logSummaryDecoder =
 
 entryDecoder : D.Decoder Entry
 entryDecoder =
-    D.map5 Entry
+    D.map4 Entry
         (D.field "id" D.string)
         (D.field "logId" D.string)
         (D.field "entryDate" dateDecoder)
-        (D.field "quantity" D.float)
-        (D.field "description" D.string)
+        (D.field "values" (D.list entryValueDecoder))
 
 
 streakStatsDecoder : D.Decoder StreakStats

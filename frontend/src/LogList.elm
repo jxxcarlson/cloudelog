@@ -5,14 +5,14 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
-import Types exposing (Log, LogSummary, Unit(..), unitToString)
+import Types exposing (Log, LogSummary, Metric)
 
 
 type alias NewLogForm =
     { open : Bool
     , name : String
-    , unitChoice : String
-    , customUnit : String
+    , metricName : String
+    , metricUnit : String
     , description : String
     , startDate : String
     }
@@ -22,8 +22,8 @@ emptyForm : NewLogForm
 emptyForm =
     { open = False
     , name = ""
-    , unitChoice = "minutes"
-    , customUnit = ""
+    , metricName = ""
+    , metricUnit = ""
     , description = ""
     , startDate = ""
     }
@@ -55,8 +55,8 @@ type Msg
     | OpenNewForm
     | CloseNewForm
     | NameChanged String
-    | UnitChoiceChanged String
-    | CustomUnitChanged String
+    | MetricNameChanged String
+    | MetricUnitChanged String
     | DescriptionChanged String
     | StartDateChanged String
     | SubmitNew
@@ -91,11 +91,11 @@ update msg model =
         NameChanged s ->
             ( { model | form = updForm model.form (\f -> { f | name = s }) }, Cmd.none, NoOp )
 
-        UnitChoiceChanged s ->
-            ( { model | form = updForm model.form (\f -> { f | unitChoice = s }) }, Cmd.none, NoOp )
+        MetricNameChanged s ->
+            ( { model | form = updForm model.form (\f -> { f | metricName = s }) }, Cmd.none, NoOp )
 
-        CustomUnitChanged s ->
-            ( { model | form = updForm model.form (\f -> { f | customUnit = s }) }, Cmd.none, NoOp )
+        MetricUnitChanged s ->
+            ( { model | form = updForm model.form (\f -> { f | metricUnit = s }) }, Cmd.none, NoOp )
 
         DescriptionChanged s ->
             ( { model | form = updForm model.form (\f -> { f | description = s }) }, Cmd.none, NoOp )
@@ -108,31 +108,27 @@ update msg model =
                 f =
                     model.form
 
-                unit =
-                    if f.unitChoice == "custom" then
-                        String.trim f.customUnit
+                metricName =
+                    String.trim f.metricName
 
-                    else
-                        f.unitChoice
+                metricUnit =
+                    String.trim f.metricUnit
             in
-            if String.isEmpty (String.trim f.name) || String.isEmpty unit then
-                ( { model | error = Just "Name and unit are required." }, Cmd.none, NoOp )
+            if String.isEmpty (String.trim f.name) || String.isEmpty metricName || String.isEmpty metricUnit then
+                ( { model | error = Just "Name, metric name and metric unit are required." }, Cmd.none, NoOp )
 
             else
                 let
-                    startDate =
-                        if String.isEmpty (String.trim f.startDate) then
-                            Nothing
-
-                        else
-                            Just (String.trim f.startDate)
+                    metrics : List Metric
+                    metrics =
+                        [ { name = metricName, unit = metricUnit } ]
                 in
                 ( model
                 , Api.createLog
                     { name = String.trim f.name
-                    , unit = unit
+                    , metrics = metrics
                     , description = f.description
-                    , startDate = startDate
+                    , startDate = Nothing
                     }
                     LogCreated
                 , NoOp
@@ -144,7 +140,7 @@ update msg model =
                 summary =
                     { id = log.id
                     , name = log.name
-                    , unit = log.unit
+                    , metrics = log.metrics
                     , description = log.description
                     , startDate = log.startDate
                     , createdAt = log.createdAt
@@ -217,18 +213,8 @@ viewForm : NewLogForm -> Html Msg
 viewForm f =
     Html.form [ onSubmit SubmitNew ]
         [ input [ placeholder "Name (e.g. Running)", value f.name, onInput NameChanged ] []
-        , select [ onInput UnitChoiceChanged ]
-            [ option [ value "minutes", selected (f.unitChoice == "minutes") ] [ text "Minutes" ]
-            , option [ value "hours", selected (f.unitChoice == "hours") ] [ text "Hours" ]
-            , option [ value "kilometers", selected (f.unitChoice == "kilometers") ] [ text "Kilometers" ]
-            , option [ value "miles", selected (f.unitChoice == "miles") ] [ text "Miles" ]
-            , option [ value "custom", selected (f.unitChoice == "custom") ] [ text "Custom…" ]
-            ]
-        , if f.unitChoice == "custom" then
-            input [ placeholder "unit name", value f.customUnit, onInput CustomUnitChanged ] []
-
-          else
-            text ""
+        , input [ placeholder "metric name (e.g. duration)", value f.metricName, onInput MetricNameChanged ] []
+        , input [ placeholder "metric unit (e.g. minutes)", value f.metricUnit, onInput MetricUnitChanged ] []
         , input [ placeholder "description (optional)", value f.description, onInput DescriptionChanged ] []
         , input
             [ type_ "date"
@@ -247,7 +233,7 @@ viewRow model l =
     div [ class "row" ]
         [ div [ class "desc", onClick (OpenLog l.id), style "cursor" "pointer" ]
             [ strong [] [ text l.name ]
-            , text (" — " ++ unitToString l.unit)
+            , text (" — " ++ (l.metrics |> List.map .unit |> String.join ", "))
             , if String.isEmpty l.description then
                 text ""
 
