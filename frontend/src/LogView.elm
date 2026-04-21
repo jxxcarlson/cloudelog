@@ -507,13 +507,21 @@ view model =
                     , viewStats [ style "margin" "0" ] stats
                     ]
                 , viewStreakRow model.streakStats log.startDate log model.availableCollections
-                , viewDescription model.editingDesc log
                 , hr
-                    [ style "margin" "0.5rem 0"
+                    [ style "margin" "0"
                     , style "border" "none"
                     , style "border-top" "1px solid #ddd"
                     ]
                     []
+                , div []
+                    [ viewDescription model.editingDesc log
+                    , hr
+                        [ style "margin" "0"
+                        , style "border" "none"
+                        , style "border-top" "1px solid #ddd"
+                        ]
+                        []
+                    ]
                 , viewNewEntryForm log.metrics model.newValues model.submitting
                 , case model.error of
                     Just e ->
@@ -618,7 +626,7 @@ viewDescription editing log =
                     ]
             in
             div
-                [ style "margin" "0.5rem 0"
+                [ style "margin" "0"
                 , style "display" "flex"
                 , style "gap" "0.5rem"
                 , style "align-items" "stretch"
@@ -663,7 +671,7 @@ viewDescription editing log =
                     ]
             in
             div
-                [ style "margin" "0.5rem 0"
+                [ style "margin" "0"
                 , style "display" "flex"
                 , style "gap" "0.5rem"
                 , style "align-items" "flex-start"
