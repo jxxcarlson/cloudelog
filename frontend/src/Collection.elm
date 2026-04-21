@@ -505,6 +505,27 @@ viewPerLog members =
 
 viewPerLogRow : CollectionMember -> Html Msg
 viewPerLogRow m =
+    let
+        days =
+            List.length m.entries
+
+        skipped =
+            List.length
+                (List.filter
+                    (\e -> List.all (\v -> v.quantity == 0) e.values)
+                    m.entries
+                )
+
+        statsText =
+            "Days: "
+                ++ String.fromInt days
+                ++ " · Skipped: "
+                ++ String.fromInt skipped
+                ++ " · Current streak: "
+                ++ String.fromInt m.streakStats.current
+                ++ " · Longest streak: "
+                ++ String.fromInt m.streakStats.longest
+    in
     div
         [ class "row"
         , style "cursor" "pointer"
@@ -512,40 +533,7 @@ viewPerLogRow m =
         ]
         [ div [ class "desc" ]
             [ strong [] [ text m.log.name ]
-            , text " — "
-            , text
-                (m.log.metrics
-                    |> List.indexedMap
-                        (\i metric ->
-                            let
-                                qtys =
-                                    List.filterMap
-                                        (\e ->
-                                            e.values
-                                                |> List.drop i
-                                                |> List.head
-                                                |> Maybe.map .quantity
-                                        )
-                                        m.entries
-
-                                total =
-                                    List.sum qtys
-
-                                active =
-                                    List.length (List.filter (\q -> q /= 0) qtys)
-
-                                avgText =
-                                    if active > 0 then
-                                        fmt1 (total / toFloat active) ++ " " ++ metric.unit
-
-                                    else
-                                        "—"
-                            in
-                            metric.name ++ ": Σ " ++ fmt total ++ " " ++ metric.unit ++ " · avg " ++ avgText
-                        )
-                    |> String.join " · "
-                )
-            , text (" · streak " ++ String.fromInt m.streakStats.current)
+            , span [ style "color" "#666" ] [ text (" — " ++ statsText) ]
             ]
         ]
 
