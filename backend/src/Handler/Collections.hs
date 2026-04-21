@@ -4,7 +4,7 @@ module Handler.Collections
   , getCollectionHandler
   , updateCollectionHandler
   , deleteCollectionHandler
-  , combinedEntryHandler  -- stub; implemented in Task 5
+  , combinedEntryHandler
   ) where
 
 import           Api.RequestTypes
@@ -117,12 +117,30 @@ combinedEntryHandler auth cid CombinedEntryRequest{..} = do
   -- Preflight (outside tx): for each log in the request, read its
   -- current maxEntryDate to size the skip-fill UUID pool, and fetch
   -- the log's metric count to validate values-array length. A concurrent
-  -- entry insert could change both between this read and the tx; we
-  -- re-validate inside the tx (length check) and the skip-fill SQL's
-  -- ON CONFLICT DO NOTHING absorbs any race on max dates.
+  -- entry insert could change the max date between this read and the tx;
+  -- the skip-fill SQL's ON CONFLICT DO NOTHING absorbs that race.
   let logIds = map leiLogId cmbLogEntries
   preflightPairs <- mapM (preflightForLog pool) logIds
   --    preflightPairs :: [(LogId, Maybe Day, Int32)]
+
+  -- Fail-fast on values-array length mismatches before opening the tx.
+  -- Doing this in-tx would let items 1..N-1 commit their writes before
+  -- item N's mismatch produced a Left AppError, creating a partial-write
+  -- window. The metric count can race with a concurrent metric edit, but
+  -- that's the same race a pure in-tx check would have.
+  let lengthMismatches =
+        [ (lid, expectedN, actualN)
+        | (LogEntryItem lid vs, (_, _, mCount)) <- zip cmbLogEntries preflightPairs
+        , let expectedN = fromIntegral mCount :: Int
+        , let actualN = length vs
+        , actualN /= expectedN
+        ]
+  case lengthMismatches of
+    [] -> pure ()
+    ((lid, expected, actual) : _) ->
+      throwError $ appErrorToServantErr $ BadRequest $ T.pack $
+        "values must have " <> show expected
+          <> " entries (got " <> show actual <> ") for log " <> T.unpack lid
 
   -- Pre-generate UUIDs:
   --   * one new-entry UUID per request item
@@ -198,37 +216,34 @@ processItems
   -> Tx.Transaction (Either AppError ())
 processItems _ _ [] = pure (Right ())
 processItems entryDate skipIds ((LogEntryItem lid vs, newId, (_, _mLast, mCount)) : rest) = do
+  -- Values-array length was validated pre-tx in combinedEntryHandler;
+  -- no need to re-check here. lockLogForUpdate remains the in-tx
+  -- ownership/existence gate.
   mUserId <- Tx.statement lid DbEntry.lockLogForUpdate
   case mUserId of
     Nothing -> pure (Left NotFound)
     Just _  -> do
-      let expectedN = fromIntegral mCount :: Int
-      if length vs /= expectedN
-        then pure (Left (BadRequest (T.pack
-                ("values must have " <> show expectedN
-                  <> " entries (got " <> show (length vs) <> ") for log " <> T.unpack lid))))
-        else do
-          -- Re-read maxEntryDate inside the tx to get a consistent snapshot.
-          mMax <- Tx.statement lid DbEntry.maxEntryDate
-          let fillDays     = datesToFill mMax entryDate
-              allSkipIds   = fromMaybe [] (M.lookup lid skipIds)
-              skipIdsToUse = take (length fillDays) allSkipIds
-          _ <- if null fillDays
-                 then pure ()
-                 else Tx.statement
-                        ( lid
-                        , V.fromList skipIdsToUse
-                        , V.fromList fillDays
-                        , mCount
-                        )
-                        DbEntry.insertSkipFills
-          let qs    = V.fromList (map evQuantity vs)
-              descs = V.fromList (map evDescription vs)
-          _entry <- Tx.statement
-                      (newId, lid, entryDate, qs, descs)
-                      DbEntry.upsertEntry
-          HE.recomputeStreaksTx lid
-          processItems entryDate skipIds rest
+      -- Re-read maxEntryDate inside the tx to get a consistent snapshot.
+      mMax <- Tx.statement lid DbEntry.maxEntryDate
+      let fillDays     = datesToFill mMax entryDate
+          allSkipIds   = fromMaybe [] (M.lookup lid skipIds)
+          skipIdsToUse = take (length fillDays) allSkipIds
+      _ <- if null fillDays
+             then pure ()
+             else Tx.statement
+                    ( lid
+                    , V.fromList skipIdsToUse
+                    , V.fromList fillDays
+                    , mCount
+                    )
+                    DbEntry.insertSkipFills
+      let qs    = V.fromList (map evQuantity vs)
+          descs = V.fromList (map evDescription vs)
+      _entry <- Tx.statement
+                  (newId, lid, entryDate, qs, descs)
+                  DbEntry.upsertEntry
+      HE.recomputeStreaksTx lid
+      processItems entryDate skipIds rest
 
 generateUuids :: Int -> IO [Text]
 generateUuids n
