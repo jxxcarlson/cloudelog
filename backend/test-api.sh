@@ -245,6 +245,89 @@ POSTED=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs/$LOG_M_ID/entries" \
 N_VALS=$(echo "$POSTED" | python3 -c 'import sys,json; es=json.load(sys.stdin)["entries"]; print(len(es[0]["values"]))')
 [ "$N_VALS" = "2" ] && ok "entry carries 2 values" || fail "expected 2, got $N_VALS"
 
+say "Collections"
+
+# Create an empty collection.
+COLL=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/collections" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Piano practice","description":"daily work"}')
+COLL_ID=$(echo "$COLL" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+
+# Create two single-metric minutes logs and assign both to the collection.
+LOG_1=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Sight reading","metrics":[{"name":"minutes","unit":"minutes"}],"description":""}')
+LOG_1_ID=$(echo "$LOG_1" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+LOG_2=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/logs" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Harmony","metrics":[{"name":"minutes","unit":"minutes"}],"description":""}')
+LOG_2_ID=$(echo "$LOG_2" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+
+curl -sS -b "$COOKIES" -X PUT "$BASE/api/logs/$LOG_1_ID/collection" \
+  -H 'Content-Type: application/json' \
+  -d "{\"collectionId\":\"$COLL_ID\"}" > /dev/null
+curl -sS -b "$COOKIES" -X PUT "$BASE/api/logs/$LOG_2_ID/collection" \
+  -H 'Content-Type: application/json' \
+  -d "{\"collectionId\":\"$COLL_ID\"}" > /dev/null
+
+# List collections — expect memberCount = 2.
+COUNT=$(curl -sS -b "$COOKIES" "$BASE/api/collections" \
+  | python3 -c "import sys,json; c=next(x for x in json.load(sys.stdin) if x['id']=='$COLL_ID'); print(c['memberCount'])")
+[ "$COUNT" = "2" ] && ok "collection has 2 members" || fail "expected 2 members, got $COUNT"
+
+# POST combined entry — LOG_1 gets 15 min, LOG_2 gets a skip.
+RESP=$(curl -sS -b "$COOKIES" -X POST "$BASE/api/collections/$COLL_ID/entries" \
+  -H 'Content-Type: application/json' \
+  -d "{\"entryDate\":\"$TODAY\",\"logEntries\":[
+        {\"logId\":\"$LOG_1_ID\",\"values\":[{\"quantity\":15,\"description\":\"Clementi\"}]},
+        {\"logId\":\"$LOG_2_ID\",\"values\":[{\"quantity\": 0,\"description\":\"\"}]}
+      ]}")
+
+# Assert both members have today's entry.
+N1=$(echo "$RESP" | python3 -c "
+import sys,json
+d = json.load(sys.stdin)
+for m in d['members']:
+    if m['log']['id']=='$LOG_1_ID':
+        e = [e for e in m['entries'] if e['entryDate']=='$TODAY']
+        print(e[0]['values'][0]['quantity'] if e else 'MISSING')
+        break
+")
+[ "$N1" = "15" ] || [ "$N1" = "15.0" ] && ok "LOG_1 today = 15" || fail "expected 15, got $N1"
+
+N2=$(echo "$RESP" | python3 -c "
+import sys,json
+d = json.load(sys.stdin)
+for m in d['members']:
+    if m['log']['id']=='$LOG_2_ID':
+        e = [e for e in m['entries'] if e['entryDate']=='$TODAY']
+        print(e[0]['values'][0]['quantity'] if e else 'MISSING')
+        break
+")
+[ "$N2" = "0" ] || [ "$N2" = "0.0" ] && ok "LOG_2 today = 0 (skip)" || fail "expected 0, got $N2"
+
+# Wrong-length values should 400.
+HTTP=$(curl -sS -b "$COOKIES" -o /dev/null -w "%{http_code}" -X POST "$BASE/api/collections/$COLL_ID/entries" \
+  -H 'Content-Type: application/json' \
+  -d "{\"entryDate\":\"$TODAY\",\"logEntries\":[
+        {\"logId\":\"$LOG_1_ID\",\"values\":[]}
+      ]}")
+[ "$HTTP" = "400" ] && ok "empty values rejected" || fail "expected 400, got $HTTP"
+
+# Release LOG_2 from the collection, verify it's standalone.
+curl -sS -b "$COOKIES" -X PUT "$BASE/api/logs/$LOG_2_ID/collection" \
+  -H 'Content-Type: application/json' \
+  -d '{"collectionId":null}' > /dev/null
+REMAINING=$(curl -sS -b "$COOKIES" "$BASE/api/collections/$COLL_ID" \
+  | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["members"]))')
+[ "$REMAINING" = "1" ] && ok "release log leaves 1 member" || fail "expected 1, got $REMAINING"
+
+# Delete collection; the still-attached log should release to standalone.
+curl -sS -b "$COOKIES" -o /dev/null -w "%{http_code}" -X DELETE "$BASE/api/collections/$COLL_ID" > /dev/null
+RELEASED=$(curl -sS -b "$COOKIES" "$BASE/api/logs/$LOG_1_ID" \
+  | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["log"]["collectionId"])')
+[ "$RELEASED" = "None" ] && ok "deleted collection releases members" || fail "expected None, got $RELEASED"
+
 say "Logout"
 HTTP=$(curl -sS -b "$COOKIES" -c "$COOKIES" -o /dev/null -w "%{http_code}" -X POST "$BASE/api/auth/logout")
 [ "$HTTP" = "204" ] && ok "logout 204" || fail "logout (got $HTTP)"
