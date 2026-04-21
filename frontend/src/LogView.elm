@@ -487,21 +487,30 @@ view model =
                 stats =
                     computeStats model.log model.entries model.today
             in
-            div []
+            div
+                [ style "display" "flex"
+                , style "flex-direction" "column"
+                , style "gap" "0.5rem"
+                , style "align-items" "stretch"
+                ]
                 [ div
                     [ style "display" "flex"
                     , style "align-items" "baseline"
                     , style "gap" "1rem"
                     , style "flex-wrap" "wrap"
                     ]
-                    [ h1 [ style "margin" "0" ] [ text log.name ]
-                    , viewStats stats
+                    [ h1
+                        [ style "margin" "0"
+                        , style "line-height" "1"
+                        ]
+                        [ text log.name ]
+                    , viewStats [ style "margin" "0" ] stats
                     ]
-                , viewStreakStats model.streakStats log.startDate
+                , viewStreakStats [ style "margin" "0" ] model.streakStats log.startDate
                 , viewDescription model.editingDesc log
                 , viewCollectionControl log model.availableCollections
                 , hr
-                    [ style "margin" "0.5rem 0 1rem 0"
+                    [ style "margin" "0.5rem 0"
                     , style "border" "none"
                     , style "border-top" "1px solid #ddd"
                     ]
@@ -615,8 +624,8 @@ viewDescription editing log =
                 ]
 
 
-viewStats : Stats -> Html msg
-viewStats s =
+viewStats : List (Html.Attribute msg) -> Stats -> Html msg
+viewStats extra s =
     let
         daysDiv =
             div [] [ text ("Days: " ++ String.fromInt s.days) ]
@@ -641,7 +650,7 @@ viewStats s =
     case s.perMetric of
         [ ms ] ->
             -- Single-metric: Days, Skipped, Total, Average on one compact row.
-            div [ class "stats" ]
+            div (class "stats" :: extra)
                 [ daysDiv
                 , skippedDiv
                 , div [] [ text ("Total: " ++ fmt ms.total ++ " " ++ ms.unit) ]
@@ -650,8 +659,8 @@ viewStats s =
 
         _ ->
             -- Multi-metric: Days/Skipped row, then a per-metric table.
-            div []
-                [ div [ class "stats" ] [ daysDiv, skippedDiv ]
+            div extra
+                [ div [ class "stats", style "margin" "0" ] [ daysDiv, skippedDiv ]
                 , if List.isEmpty s.perMetric then
                     text ""
 
@@ -715,8 +724,8 @@ viewMetricStatsRow ms =
         ]
 
 
-viewStreakStats : Maybe StreakStats -> Date -> Html msg
-viewStreakStats mss startDate =
+viewStreakStats : List (Html.Attribute msg) -> Maybe StreakStats -> Date -> Html msg
+viewStreakStats extra mss startDate =
     let
         dash =
             "—"
@@ -760,10 +769,10 @@ viewStreakStats mss startDate =
     in
     case mss of
         Nothing ->
-            div [ class "stats" ] [ sinceCell ]
+            div (class "stats" :: extra) [ sinceCell ]
 
         Just ss ->
-            div [ class "stats" ]
+            div (class "stats" :: extra)
                 [ intCell "Current streak" ss.current
                 , avgCell "Avg streak" ss.average
                 , intCell "Longest streak" ss.longest
