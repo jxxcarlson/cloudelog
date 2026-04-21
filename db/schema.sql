@@ -36,6 +36,22 @@ CREATE TABLE public.entries (
 
 
 --
+-- Name: log_collections; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.log_collections (
+    id text NOT NULL,
+    user_id text NOT NULL,
+    name text NOT NULL,
+    description text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT log_collections_name_length CHECK ((length(name) <= 200)),
+    CONSTRAINT log_collections_name_nonempty CHECK ((length(btrim(name)) >= 1))
+);
+
+
+--
 -- Name: logs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -49,6 +65,7 @@ CREATE TABLE public.logs (
     start_date date DEFAULT CURRENT_DATE NOT NULL,
     metric_names text[] DEFAULT ARRAY[]::text[] NOT NULL,
     metric_units text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    collection_id text,
     CONSTRAINT logs_metrics_nonempty CHECK ((cardinality(metric_names) >= 1)),
     CONSTRAINT logs_metrics_same_length CHECK ((cardinality(metric_names) = cardinality(metric_units)))
 );
@@ -134,6 +151,14 @@ ALTER TABLE ONLY public.entries
 
 
 --
+-- Name: log_collections log_collections_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.log_collections
+    ADD CONSTRAINT log_collections_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: logs logs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -189,6 +214,20 @@ CREATE INDEX entries_log_date_idx ON public.entries USING btree (log_id, entry_d
 
 
 --
+-- Name: log_collections_user_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX log_collections_user_idx ON public.log_collections USING btree (user_id, updated_at DESC);
+
+
+--
+-- Name: logs_collection_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX logs_collection_idx ON public.logs USING btree (collection_id) WHERE (collection_id IS NOT NULL);
+
+
+--
 -- Name: logs_user_updated_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -201,6 +240,22 @@ CREATE INDEX logs_user_updated_idx ON public.logs USING btree (user_id, updated_
 
 ALTER TABLE ONLY public.entries
     ADD CONSTRAINT entries_log_id_fkey FOREIGN KEY (log_id) REFERENCES public.logs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: log_collections log_collections_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.log_collections
+    ADD CONSTRAINT log_collections_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: logs logs_collection_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.logs
+    ADD CONSTRAINT logs_collection_id_fkey FOREIGN KEY (collection_id) REFERENCES public.log_collections(id) ON DELETE SET NULL;
 
 
 --
@@ -243,4 +298,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('002'),
     ('003'),
     ('004'),
-    ('005');
+    ('005'),
+    ('006');
