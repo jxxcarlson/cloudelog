@@ -1,60 +1,160 @@
 module ComputeStatsTests exposing (suite)
 
-import Date exposing (Date)
+import Date exposing (fromRataDie)
 import Expect
-import LogView exposing (Stats, computeStats)
+import LogView exposing (computeStats)
 import Test exposing (Test, describe, test)
-import Types exposing (Entry)
+import Time
+import Types exposing (Entry, Log, Metric)
 
 
--- helpers
-d : Int -> Int -> Int -> Date
-d y m day =
-    Date.fromCalendarDate y (dateMonth m) day
+mkLog : List Metric -> Log
+mkLog metrics =
+    { id = "log"
+    , name = "Test"
+    , metrics = metrics
+    , description = ""
+    , startDate = fromRataDie 1
+    , createdAt = Time.millisToPosix 0
+    , updatedAt = Time.millisToPosix 0
+    }
 
-dateMonth : Int -> Date.Month
-dateMonth n =
-    Date.numberToMonth n
 
-e : String -> Date -> Float -> Entry
-e eid dt q =
-    { id = eid
-    , logId = "L1"
-    , date = dt
-    , values = [ { quantity = q, description = "" } ]
+mkEntry : Int -> List Float -> Entry
+mkEntry rd qs =
+    { id = "e" ++ String.fromInt rd
+    , logId = "log"
+    , date = fromRataDie rd
+    , values = List.map (\q -> { quantity = q, description = "" }) qs
     }
 
 
 suite : Test
 suite =
     describe "LogView.computeStats"
-        [ test "empty list: all zero / Nothing" <|
-            \_ ->
-                computeStats [] (d 2026 4 18)
-                    |> Expect.equal { days = 0, skipped = 0, total = 0, average = Nothing }
-        , test "single entry on today: days=1, total=q, average=Just q" <|
-            \_ ->
-                computeStats [ e "1" (d 2026 4 18) 30 ] (d 2026 4 18)
-                    |> Expect.equal { days = 1, skipped = 0, total = 30, average = Just 30 }
-        , test "one entry three days ago: days=4, active=1, avg=total/1" <|
-            \_ ->
-                computeStats [ e "1" (d 2026 4 15) 30 ] (d 2026 4 18)
-                    |> Expect.equal { days = 4, skipped = 0, total = 30, average = Just 30 }
-        , test "with skips: two real, one skip, over 3 days" <|
+        [ test "empty entries with a single-metric log: zero days, zero skipped, zero-row perMetric" <|
             \_ ->
                 computeStats
-                    [ e "1" (d 2026 4 16) 20
-                    , e "2" (d 2026 4 17) 0
-                    , e "3" (d 2026 4 18) 40
-                    ]
-                    (d 2026 4 18)
-                    |> Expect.equal { days = 3, skipped = 1, total = 60, average = Just 30 }
-        , test "all skips: average is Nothing" <|
+                    (Just (mkLog [ { name = "miles", unit = "mi" } ]))
+                    []
+                    (fromRataDie 1)
+                    |> Expect.equal
+                        { days = 0
+                        , skipped = 0
+                        , perMetric =
+                            [ { name = "miles", unit = "mi", total = 0, average = Nothing } ]
+                        }
+        , test "empty entries with no log: zero days, zero skipped, empty perMetric" <|
             \_ ->
-                computeStats
-                    [ e "1" (d 2026 4 17) 0
-                    , e "2" (d 2026 4 18) 0
-                    ]
-                    (d 2026 4 18)
-                    |> Expect.equal { days = 2, skipped = 2, total = 0, average = Nothing }
+                computeStats Nothing [] (fromRataDie 1)
+                    |> Expect.equal { days = 0, skipped = 0, perMetric = [] }
+        , test "single-metric: total and average over active entries, skip counted" <|
+            \_ ->
+                let
+                    log =
+                        mkLog [ { name = "miles", unit = "mi" } ]
+
+                    entries =
+                        [ mkEntry 100 [ 20 ]
+                        , mkEntry 101 [ 0 ]
+                        , mkEntry 102 [ 40 ]
+                        ]
+                in
+                computeStats (Just log) entries (fromRataDie 102)
+                    |> Expect.equal
+                        { days = 3
+                        , skipped = 1
+                        , perMetric =
+                            [ { name = "miles", unit = "mi", total = 60, average = Just 30 } ]
+                        }
+        , test "all-zero entry is treated as skipped (multi-metric)" <|
+            \_ ->
+                let
+                    log =
+                        mkLog
+                            [ { name = "miles", unit = "mi" }
+                            , { name = "minutes", unit = "min" }
+                            ]
+
+                    entries =
+                        [ mkEntry 200 [ 0, 0 ]
+                        , mkEntry 201 [ 3, 30 ]
+                        ]
+                in
+                computeStats (Just log) entries (fromRataDie 201)
+                    |> Expect.equal
+                        { days = 2
+                        , skipped = 1
+                        , perMetric =
+                            [ { name = "miles", unit = "mi", total = 3, average = Just 3 }
+                            , { name = "minutes", unit = "min", total = 30, average = Just 30 }
+                            ]
+                        }
+        , test "multi-metric: parallel totals and averages per position" <|
+            \_ ->
+                let
+                    log =
+                        mkLog
+                            [ { name = "miles", unit = "mi" }
+                            , { name = "minutes", unit = "min" }
+                            ]
+
+                    entries =
+                        [ mkEntry 300 [ 2, 20 ]
+                        , mkEntry 301 [ 4, 40 ]
+                        , mkEntry 302 [ 6, 60 ]
+                        ]
+                in
+                computeStats (Just log) entries (fromRataDie 302)
+                    |> Expect.equal
+                        { days = 3
+                        , skipped = 0
+                        , perMetric =
+                            [ { name = "miles", unit = "mi", total = 12, average = Just 4 }
+                            , { name = "minutes", unit = "min", total = 120, average = Just 40 }
+                            ]
+                        }
+        , test "defensive: missing metric position is skipped (not counted) when an entry is short" <|
+            \_ ->
+                let
+                    log =
+                        mkLog
+                            [ { name = "miles", unit = "mi" }
+                            , { name = "minutes", unit = "min" }
+                            , { name = "feet", unit = "ft" }
+                            ]
+
+                    entries =
+                        [ mkEntry 400 [ 2, 20 ] -- short: only two values, missing feet
+                        , mkEntry 401 [ 4, 40, 100 ]
+                        ]
+                in
+                computeStats (Just log) entries (fromRataDie 401)
+                    |> Expect.equal
+                        { days = 2
+                        , skipped = 0
+                        , perMetric =
+                            [ { name = "miles", unit = "mi", total = 6, average = Just 3 }
+                            , { name = "minutes", unit = "min", total = 60, average = Just 30 }
+                            , { name = "feet", unit = "ft", total = 100, average = Just 100 }
+                            ]
+                        }
+        , test "all skips: averages are Nothing" <|
+            \_ ->
+                let
+                    log =
+                        mkLog [ { name = "miles", unit = "mi" } ]
+
+                    entries =
+                        [ mkEntry 500 [ 0 ]
+                        , mkEntry 501 [ 0 ]
+                        ]
+                in
+                computeStats (Just log) entries (fromRataDie 501)
+                    |> Expect.equal
+                        { days = 2
+                        , skipped = 2
+                        , perMetric =
+                            [ { name = "miles", unit = "mi", total = 0, average = Nothing } ]
+                        }
         ]

@@ -1,4 +1,4 @@
-module LogView exposing (Model, Msg(..), OutMsg(..), Stats, computeStats, init, update, view)
+module LogView exposing (MetricStats, Model, Msg(..), OutMsg(..), Stats, computeStats, init, update, view)
 
 import Api
 import Date exposing (Date)
@@ -30,39 +30,78 @@ firstValueDescription en =
 type alias Stats =
     { days : Int
     , skipped : Int
+    , perMetric : List MetricStats
+    }
+
+
+type alias MetricStats =
+    { name : String
+    , unit : String
     , total : Float
     , average : Maybe Float
     }
 
 
-computeStats : List Entry -> Date -> Stats
-computeStats entries today =
-    case List.sortBy (Date.toRataDie << .date) entries of
-        [] ->
-            { days = 0, skipped = 0, total = 0, average = Nothing }
+computeStats : Maybe Log -> List Entry -> Date -> Stats
+computeStats mLog entries today =
+    let
+        metrics =
+            case mLog of
+                Just l ->
+                    l.metrics
 
-        first :: _ ->
-            let
-                days =
+                Nothing ->
+                    []
+
+        sorted =
+            List.sortBy (Date.toRataDie << .date) entries
+
+        days =
+            case sorted of
+                [] ->
+                    0
+
+                first :: _ ->
                     Date.diff Date.Days first.date today + 1
 
-                skipped =
-                    List.length (List.filter (\en -> firstValueQuantity en == 0) entries)
+        isSkipped e =
+            List.all (\v -> v.quantity == 0) e.values
 
-                total =
-                    List.sum (List.map firstValueQuantity entries)
+        skipped =
+            List.length (List.filter isSkipped entries)
 
-                active =
-                    List.length (List.filter (\en -> firstValueQuantity en /= 0) entries)
+        perMetric =
+            List.indexedMap
+                (\i m ->
+                    let
+                        qtys =
+                            List.filterMap
+                                (\e ->
+                                    e.values
+                                        |> List.drop i
+                                        |> List.head
+                                        |> Maybe.map .quantity
+                                )
+                                entries
 
-                average =
-                    if active > 0 then
-                        Just (total / toFloat active)
+                        total =
+                            List.sum qtys
 
-                    else
-                        Nothing
-            in
-            { days = days, skipped = skipped, total = total, average = average }
+                        active =
+                            List.length (List.filter (\q -> q /= 0) qtys)
+
+                        average =
+                            if active > 0 then
+                                Just (total / toFloat active)
+
+                            else
+                                Nothing
+                    in
+                    { name = m.name, unit = m.unit, total = total, average = average }
+                )
+                metrics
+    in
+    { days = days, skipped = skipped, perMetric = perMetric }
 
 
 
@@ -356,7 +395,7 @@ view model =
         Just log ->
             let
                 stats =
-                    computeStats model.entries model.today
+                    computeStats model.log model.entries model.today
             in
             div []
                 [ h1 [] [ text log.name ]
@@ -461,36 +500,31 @@ viewDescription editing log =
 
 viewStats : Stats -> Html msg
 viewStats s =
-    let
-        fmt : Float -> String
-        fmt n =
-            String.fromFloat n
+    div []
+        [ div [ class "stats" ]
+            [ div [] [ text ("Days: " ++ String.fromInt s.days) ]
+            , div [] [ text ("Skipped: " ++ String.fromInt s.skipped) ]
+            ]
+        , div [] (List.map viewMetricStatsRow s.perMetric)
+        ]
 
-        -- One decimal place, padded with ".0" when rounding yields an integer.
-        fmt1 : Float -> String
-        fmt1 n =
-            let
-                rounded =
-                    toFloat (round (n * 10)) / 10
 
-                base =
-                    String.fromFloat rounded
-            in
-            if String.contains "." base then
-                base
-
-            else
-                base ++ ".0"
-
-        maybeFmt1 : Maybe Float -> String
-        maybeFmt1 =
-            Maybe.map fmt1 >> Maybe.withDefault "—"
-    in
+viewMetricStatsRow : MetricStats -> Html msg
+viewMetricStatsRow ms =
     div [ class "stats" ]
-        [ div [] [ text ("Days: " ++ String.fromInt s.days) ]
-        , div [] [ text ("Skipped: " ++ String.fromInt s.skipped) ]
-        , div [] [ text ("Total: " ++ fmt s.total) ]
-        , div [] [ text ("Avg: " ++ maybeFmt1 s.average) ]
+        [ div [] [ text (ms.name ++ " — Total: " ++ String.fromFloat ms.total ++ " " ++ ms.unit) ]
+        , div []
+            [ text
+                ("Avg: "
+                    ++ (case ms.average of
+                            Just a ->
+                                String.fromFloat (toFloat (round (a * 10)) / 10) ++ " " ++ ms.unit
+
+                            Nothing ->
+                                "—"
+                       )
+                )
+            ]
         ]
 
 
