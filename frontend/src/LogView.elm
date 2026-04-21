@@ -488,12 +488,19 @@ view model =
                     computeStats model.log model.entries model.today
             in
             div []
-                [ h1 [] [ text log.name ]
+                [ div
+                    [ style "display" "flex"
+                    , style "align-items" "baseline"
+                    , style "gap" "1rem"
+                    , style "flex-wrap" "wrap"
+                    ]
+                    [ h1 [ style "margin" "0" ] [ text log.name ]
+                    , viewStats stats
+                    ]
                 , p []
                     [ text ("Unit: " ++ (log.metrics |> List.map .unit |> String.join ", "))
                     , text (" · since " ++ Date.toIsoString log.startDate)
                     ]
-                , viewStats stats
                 , viewStreakStats model.streakStats
                 , viewDescription model.editingDesc log
                 , viewCollectionControl log model.availableCollections
