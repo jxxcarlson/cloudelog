@@ -506,9 +506,8 @@ view model =
                         [ text log.name ]
                     , viewStats [ style "margin" "0" ] stats
                     ]
-                , viewStreakStats [ style "margin" "0" ] model.streakStats log.startDate
+                , viewStreakRow model.streakStats log.startDate log model.availableCollections
                 , viewDescription model.editingDesc log
-                , viewCollectionControl log model.availableCollections
                 , hr
                     [ style "margin" "0.5rem 0"
                     , style "border" "none"
@@ -530,27 +529,82 @@ view model =
                 ]
 
 
-viewCollectionControl : Log -> List CollectionSummary -> Html Msg
-viewCollectionControl log availableCollections =
-    div [ style "margin" "0.5rem 0" ]
-        [ label
-            [ style "margin-right" "0.5rem"
-            , style "color" "#555"
-            ]
-            [ text "Collection:" ]
-        , select
-            [ onInput CollectionSelected
-            , value (Maybe.withDefault "" log.collectionId)
-            ]
-            (option [ value "" ] [ text "— none —" ]
-                :: List.map
-                    (\c ->
-                        option [ value c.id, selected (log.collectionId == Just c.id) ]
-                            [ text c.name ]
+viewStreakRow : Maybe StreakStats -> Date -> Log -> List CollectionSummary -> Html Msg
+viewStreakRow mss startDate log availableCollections =
+    let
+        dash =
+            "—"
+
+        intCell label n =
+            div []
+                [ text
+                    (label
+                        ++ ": "
+                        ++ (if n <= 0 then
+                                dash
+
+                            else
+                                String.fromInt n
+                           )
                     )
-                    availableCollections
-            )
-        ]
+                ]
+
+        avgCell label ma =
+            div []
+                [ text
+                    (label
+                        ++ ": "
+                        ++ (case ma of
+                                Just a ->
+                                    String.fromFloat (toFloat (round (a * 10)) / 10)
+
+                                Nothing ->
+                                    dash
+                           )
+                    )
+                ]
+
+        sinceCell =
+            div [] [ text ("Since " ++ Date.format "MMMM d, y" startDate) ]
+
+        collectionCell =
+            div
+                [ style "display" "flex"
+                , style "gap" "0.5rem"
+                , style "align-items" "baseline"
+                ]
+                [ span [ style "color" "#555" ] [ text "Collection:" ]
+                , select
+                    [ onInput CollectionSelected
+                    , value (Maybe.withDefault "" log.collectionId)
+                    ]
+                    (option [ value "" ] [ text "— none —" ]
+                        :: List.map
+                            (\c ->
+                                option
+                                    [ value c.id
+                                    , selected (log.collectionId == Just c.id)
+                                    ]
+                                    [ text c.name ]
+                            )
+                            availableCollections
+                    )
+                ]
+
+        children =
+            case mss of
+                Nothing ->
+                    [ sinceCell, collectionCell ]
+
+                Just ss ->
+                    [ intCell "Current streak" ss.current
+                    , avgCell "Avg streak" ss.average
+                    , intCell "Longest streak" ss.longest
+                    , sinceCell
+                    , collectionCell
+                    ]
+    in
+    div [ class "stats", style "margin" "0" ] children
 
 
 viewDescription : Maybe DescDraft -> Log -> Html Msg
@@ -722,62 +776,6 @@ viewMetricStatsRow ms =
         , metricTd totalText
         , metricTd avgText
         ]
-
-
-viewStreakStats : List (Html.Attribute msg) -> Maybe StreakStats -> Date -> Html msg
-viewStreakStats extra mss startDate =
-    let
-        dash =
-            "—"
-
-        intCell label n =
-            div []
-                [ text
-                    (label
-                        ++ ": "
-                        ++ (if n <= 0 then
-                                dash
-
-                            else
-                                String.fromInt n
-                           )
-                    )
-                ]
-
-        avgCell label ma =
-            div []
-                [ text
-                    (label
-                        ++ ": "
-                        ++ (case ma of
-                                Just a ->
-                                    -- one decimal place, matches Avg in viewStats
-                                    let
-                                        rounded =
-                                            toFloat (round (a * 10)) / 10
-                                    in
-                                    String.fromFloat rounded
-
-                                Nothing ->
-                                    dash
-                           )
-                    )
-                ]
-
-        sinceCell =
-            div [] [ text ("Since " ++ Date.format "MMMM d, y" startDate) ]
-    in
-    case mss of
-        Nothing ->
-            div (class "stats" :: extra) [ sinceCell ]
-
-        Just ss ->
-            div (class "stats" :: extra)
-                [ intCell "Current streak" ss.current
-                , avgCell "Avg streak" ss.average
-                , intCell "Longest streak" ss.longest
-                , sinceCell
-                ]
 
 
 viewNewEntryForm : List Metric -> List ValueDraft -> Bool -> Html Msg
