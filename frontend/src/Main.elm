@@ -4,6 +4,7 @@ import Api
 import Auth
 import Browser
 import Browser.Navigation as Nav
+import Collection
 import Date exposing (Date)
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -35,6 +36,7 @@ type Page
     | PageAuth Auth.Model
     | PageLogList LogList.Model
     | PageLogView LogView.Model
+    | PageCollection Collection.Model
     | PageNotFound
 
 
@@ -57,6 +59,7 @@ type Msg
     | AuthMsg Auth.Msg
     | LogListMsg LogList.Msg
     | LogViewMsg LogView.Msg
+    | CollectionMsg Collection.Msg
     | LogoutRequested
     | LogoutResponded (Result Http.Error ())
 
@@ -194,6 +197,28 @@ update msg model =
                 _ ->
                     ( model, Cmd.none )
 
+        CollectionMsg subMsg ->
+            case model.page of
+                PageCollection subModel ->
+                    let
+                        ( newSub, subCmd, outMsg ) =
+                            Collection.update subMsg subModel
+
+                        navCmd =
+                            case outMsg of
+                                Collection.NavigateToLog logId ->
+                                    Nav.pushUrl model.key ("/logs/" ++ logId)
+
+                                Collection.NoOp ->
+                                    Cmd.none
+                    in
+                    ( { model | page = PageCollection newSub }
+                    , Cmd.batch [ Cmd.map CollectionMsg subCmd, navCmd ]
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
         LogoutRequested ->
             ( model, Api.logout LogoutResponded )
 
@@ -262,9 +287,16 @@ goto model route =
             -- Today not loaded yet; stay on Loading.
             ( { base | page = PageLoading }, Cmd.none )
 
-        ( CollectionDetail _, Just _, _ ) ->
-            -- Collection detail UI lands in a later task; for now show NotFound.
-            ( { base | page = PageNotFound }, Cmd.none )
+        ( CollectionDetail id, Just _, Just today ) ->
+            let
+                ( subModel, subCmd ) =
+                    Collection.init id today
+            in
+            ( { base | page = PageCollection subModel }, Cmd.map CollectionMsg subCmd )
+
+        ( CollectionDetail _, Just _, Nothing ) ->
+            -- Today not loaded yet; stay on Loading.
+            ( { base | page = PageLoading }, Cmd.none )
 
         ( NotFound, _, _ ) ->
             ( { base | page = PageNotFound }, Cmd.none )
@@ -293,6 +325,9 @@ view model =
 
             PageLogView subModel ->
                 Html.map LogViewMsg (LogView.view subModel)
+
+            PageCollection subModel ->
+                Html.map CollectionMsg (Collection.view subModel)
 
             PageNotFound ->
                 p [] [ text "Not found." ]
