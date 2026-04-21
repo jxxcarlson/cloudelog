@@ -1,8 +1,20 @@
 {
-  "defaultMode": "bypassPermissions",
   "skipDangerousModePermissionPrompt": true,
   "permissions": {
-    "allow": ["Edit", "Read"]
+    "defaultMode": "auto",
+    "allow": [
+      "Edit",
+      "Read",
+      "Bash(elm make *)",
+      "Bash(elm-test)",
+      "Bash(stack build *)",
+      "Bash(cabal build *)"
+    ]
+  },
+  "autoMode": {
+    "allow": [
+      "Build and test commands for the cloudelog project (stack build/test/exec/ghc, cabal build/test, elm make, elm-test) anywhere under /Users/carlson/dev/cloudelog, including shell compounds with leading cd into subdirectories, pipes to head/tail/less/grep, 2>&1 redirects, and output files written to $TMPDIR or inside the cloudelog tree. Does not cover commands that delete files, push to remotes, install dependencies, or invoke other interpreters (node, python, bash -c, npx)."
+    ]
   },
   "sandbox": {
     "enabled": true,
