@@ -1,4 +1,4 @@
-module Collection exposing (Model, Msg, OutMsg(..), init, update, view)
+module Collection exposing (Model, Msg, OutMsg(..), computeCombinedTotals, init, update, view)
 
 import Api
 import Date exposing (Date)
@@ -6,7 +6,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
-import Types exposing (Collection, CollectionDetail, CollectionMember, Log, Metric)
+import Types exposing (Collection, CollectionDetail, CollectionMember, CombinedTotal, Entry, Log, Metric)
 
 
 type alias ValueDraft =
@@ -222,6 +222,10 @@ view model =
                     div [] [ text "No data" ]
 
         ( False, Just d ) ->
+            let
+                totals =
+                    computeCombinedTotals d.members
+            in
             div []
                 [ h1 [] [ text d.collection.name ]
                 , if String.isEmpty d.collection.description then
@@ -236,9 +240,9 @@ view model =
 
                     Nothing ->
                         text ""
-                , h3 [] [ text "Members" ]
-                , div []
-                    (List.map viewMemberRow d.members)
+                , viewCombinedTotals totals
+                , viewPerLog d.members
+                , viewHistory d.members
                 ]
 
 
@@ -327,21 +331,343 @@ viewValueDraftRow logName metrics logId i v =
         ]
 
 
-viewMemberRow : CollectionMember -> Html Msg
-viewMemberRow m =
+computeCombinedTotals : List CollectionMember -> List CombinedTotal
+computeCombinedTotals members =
+    let
+        -- All (unit, quantity, date) tuples from every (log, metric) pair
+        -- with quantity > 0.
+        contributions : List ( String, Float, Date )
+        contributions =
+            members
+                |> List.concatMap
+                    (\m ->
+                        List.concatMap
+                            (\e ->
+                                List.map2
+                                    (\metric v -> ( metric.unit, v.quantity, e.date ))
+                                    m.log.metrics
+                                    e.values
+                            )
+                            m.entries
+                    )
+                |> List.filter (\( _, q, _ ) -> q > 0)
+
+        -- For each unit, count how many distinct (log, metric) pairs
+        -- feed it across the collection.
+        contributorsByUnit : List ( String, Int )
+        contributorsByUnit =
+            members
+                |> List.concatMap (\m -> List.map .unit m.log.metrics)
+                |> groupCount
+
+        -- Group contributions by unit.
+        byUnit : List ( String, List ( Float, Date ) )
+        byUnit =
+            groupBy (List.map (\( u, q, d ) -> ( u, ( q, d ) )) contributions)
+    in
+    List.filterMap
+        (\( unit, pairs ) ->
+            let
+                contributors =
+                    contributorsByUnit
+                        |> List.filter (\( u, _ ) -> u == unit)
+                        |> List.head
+                        |> Maybe.map Tuple.second
+                        |> Maybe.withDefault 0
+
+                total =
+                    pairs |> List.map Tuple.first |> List.sum
+
+                distinctDays =
+                    pairs
+                        |> List.map (Tuple.second >> Date.toRataDie)
+                        |> dedup
+                        |> List.length
+
+                average =
+                    if distinctDays > 0 then
+                        Just (total / toFloat distinctDays)
+
+                    else
+                        Nothing
+            in
+            if contributors >= 2 then
+                Just
+                    { unit = unit
+                    , total = total
+                    , average = average
+                    , days = distinctDays
+                    , contributors = contributors
+                    }
+
+            else
+                Nothing
+        )
+        byUnit
+
+
+groupBy : List ( comparable, b ) -> List ( comparable, List b )
+groupBy xs =
+    List.foldl
+        (\( k, v ) acc ->
+            if List.any (\( ka, _ ) -> ka == k) acc then
+                List.map
+                    (\( ka, vs ) ->
+                        if ka == k then
+                            ( ka, vs ++ [ v ] )
+
+                        else
+                            ( ka, vs )
+                    )
+                    acc
+
+            else
+                acc ++ [ ( k, [ v ] ) ]
+        )
+        []
+        xs
+
+
+groupCount : List comparable -> List ( comparable, Int )
+groupCount =
+    List.foldl
+        (\x acc ->
+            if List.any (\( k, _ ) -> k == x) acc then
+                List.map
+                    (\( k, n ) ->
+                        if k == x then
+                            ( k, n + 1 )
+
+                        else
+                            ( k, n )
+                    )
+                    acc
+
+            else
+                acc ++ [ ( x, 1 ) ]
+        )
+        []
+
+
+dedup : List comparable -> List comparable
+dedup xs =
+    List.foldl
+        (\x acc ->
+            if List.member x acc then
+                acc
+
+            else
+                x :: acc
+        )
+        []
+        xs
+
+
+viewCombinedTotals : List CombinedTotal -> Html Msg
+viewCombinedTotals totals =
+    if List.isEmpty totals then
+        text ""
+
+    else
+        div []
+            [ h3 [] [ text "Combined totals" ]
+            , div []
+                (List.map
+                    (\t ->
+                        div [ class "stats" ]
+                            [ div [] [ text (t.unit ++ " — Σ " ++ fmt t.total ++ " " ++ t.unit) ]
+                            , div []
+                                [ text
+                                    ("avg "
+                                        ++ (case t.average of
+                                                Just a ->
+                                                    fmt1 a ++ " " ++ t.unit ++ "/day"
+
+                                                Nothing ->
+                                                    "—"
+                                           )
+                                    )
+                                ]
+                            , div [] [ text (String.fromInt t.days ++ " days") ]
+                            ]
+                    )
+                    totals
+                )
+            ]
+
+
+viewPerLog : List CollectionMember -> Html Msg
+viewPerLog members =
+    div []
+        [ h3 [] [ text "Per log" ]
+        , div [] (List.map viewPerLogRow members)
+        ]
+
+
+viewPerLogRow : CollectionMember -> Html Msg
+viewPerLogRow m =
     div
         [ class "row"
-        , onClick (OpenLog m.log.id)
         , style "cursor" "pointer"
+        , onClick (OpenLog m.log.id)
         ]
         [ div [ class "desc" ]
             [ strong [] [ text m.log.name ]
+            , text " — "
             , text
-                (" — "
-                    ++ (m.log.metrics
-                            |> List.map .unit
-                            |> String.join ", "
-                       )
+                (m.log.metrics
+                    |> List.indexedMap
+                        (\i metric ->
+                            let
+                                qtys =
+                                    List.filterMap
+                                        (\e ->
+                                            e.values
+                                                |> List.drop i
+                                                |> List.head
+                                                |> Maybe.map .quantity
+                                        )
+                                        m.entries
+
+                                total =
+                                    List.sum qtys
+
+                                active =
+                                    List.length (List.filter (\q -> q /= 0) qtys)
+
+                                avgText =
+                                    if active > 0 then
+                                        fmt1 (total / toFloat active) ++ " " ++ metric.unit
+
+                                    else
+                                        "—"
+                            in
+                            metric.name ++ ": Σ " ++ fmt total ++ " " ++ metric.unit ++ " · avg " ++ avgText
+                        )
+                    |> String.join " · "
                 )
+            , text (" · streak " ++ String.fromInt m.streakStats.current)
             ]
         ]
+
+
+type alias HistoryRow =
+    { date : Date
+    , logName : String
+    , metrics : List Metric
+    , entry : Entry
+    }
+
+
+viewHistory : List CollectionMember -> Html Msg
+viewHistory members =
+    let
+        rows : List HistoryRow
+        rows =
+            members
+                |> List.concatMap
+                    (\m ->
+                        List.map
+                            (\e ->
+                                { date = e.date
+                                , logName = m.log.name
+                                , metrics = m.log.metrics
+                                , entry = e
+                                }
+                            )
+                            m.entries
+                    )
+                |> List.sortBy (\r -> -(Date.toRataDie r.date))
+
+        groups : List ( Date, List HistoryRow )
+        groups =
+            rows
+                |> List.foldr
+                    (\r acc ->
+                        case acc of
+                            ( da, xs ) :: rest ->
+                                if Date.toRataDie da == Date.toRataDie r.date then
+                                    ( da, r :: xs ) :: rest
+
+                                else
+                                    ( r.date, [ r ] ) :: acc
+
+                            [] ->
+                                [ ( r.date, [ r ] ) ]
+                    )
+                    []
+    in
+    if List.isEmpty groups then
+        text ""
+
+    else
+        div []
+            [ h3 [] [ text "History" ]
+            , div [] (List.map viewHistoryDay groups)
+            ]
+
+
+viewHistoryDay : ( Date, List HistoryRow ) -> Html Msg
+viewHistoryDay ( date, rows ) =
+    div [ style "margin" "0.75rem 0" ]
+        (h4 [] [ text (Date.toIsoString date) ]
+            :: List.map viewHistoryRow rows
+        )
+
+
+viewHistoryRow : HistoryRow -> Html Msg
+viewHistoryRow { logName, metrics, entry } =
+    let
+        isSkip =
+            List.all (\v -> v.quantity == 0 && String.isEmpty v.description) entry.values
+
+        rendered =
+            if isSkip then
+                "(skipped)"
+
+            else
+                List.indexedMap
+                    (\i v ->
+                        let
+                            unit =
+                                metrics
+                                    |> List.drop i
+                                    |> List.head
+                                    |> Maybe.map .unit
+                                    |> Maybe.withDefault ""
+                        in
+                        String.fromFloat v.quantity
+                            ++ (if String.isEmpty unit then
+                                    ""
+
+                                else
+                                    " " ++ unit
+                               )
+                            ++ (if String.isEmpty v.description then
+                                    ""
+
+                                else
+                                    " — " ++ v.description
+                               )
+                    )
+                    entry.values
+                    |> String.join " · "
+    in
+    div
+        [ style "display" "flex"
+        , style "gap" "1rem"
+        , style "padding" "0.2rem 0"
+        ]
+        [ div [ style "min-width" "10rem", style "color" "#555" ] [ text logName ]
+        , div [] [ text rendered ]
+        ]
+
+
+fmt : Float -> String
+fmt =
+    String.fromFloat
+
+
+fmt1 : Float -> String
+fmt1 a =
+    String.fromFloat (toFloat (round (a * 10)) / 10)
