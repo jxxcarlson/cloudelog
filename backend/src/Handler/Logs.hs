@@ -1,6 +1,7 @@
 module Handler.Logs
   ( requireUser
   , toEntryResponse
+  , toLogResponse
   , listLogsHandler
   , createLogHandler
   , getLogHandler

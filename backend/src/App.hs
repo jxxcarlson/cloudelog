@@ -5,6 +5,7 @@ import           AppEnv                     (AppEnv(..), AppM)
 import           Config                     (Config(..))
 import qualified Db.Pool                    as Db
 import qualified Handler.Auth               as H
+import qualified Handler.Collections        as H
 import qualified Handler.Entries            as H
 import qualified Handler.Logs               as H
 import           Control.Monad.Reader       (runReaderT)
@@ -96,6 +97,7 @@ serverT =
        authServer
   :<|> logsServer
   :<|> entriesServer
+  :<|> collectionsServer
   :<|> healthHandler
   where
     authServer =
@@ -113,5 +115,12 @@ serverT =
     entriesServer auth =
            H.updateEntryHandler auth
       :<|> H.deleteEntryHandler auth
+    collectionsServer auth =
+           H.listCollectionsHandler   auth
+      :<|> H.createCollectionHandler  auth
+      :<|> H.getCollectionHandler     auth
+      :<|> H.updateCollectionHandler  auth
+      :<|> H.deleteCollectionHandler  auth
+      :<|> H.combinedEntryHandler     auth
     healthHandler :: AppM String
     healthHandler = pure "ok"
