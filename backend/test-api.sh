@@ -110,14 +110,14 @@ print([e["values"][0]["quantity"] for e in es if e["entryDate"]=="2026-04-11"][0
 ')
 [ "$SKIP_QTY" = "0.0" ] || [ "$SKIP_QTY" = "0" ] && ok "gap day has quantity 0" || fail "skip-fill quantity (got $SKIP_QTY)"
 
-say "Same-day overwrite (post 2026-04-13 again, qty=7)"
+say "Same-day accumulate (post 2026-04-13 again, qty=7 → 45+7=52)"
 curl -sS -b "$COOKIES" -X POST "$BASE/api/logs/$LOG_ID/entries" \
   -H "Content-Type: application/json" \
   -d '{"entryDate":"2026-04-13","values":[{"quantity":7,"description":""}]}' \
   > /dev/null
 GOT_Q=$(curl -sS -b "$COOKIES" "$BASE/api/logs/$LOG_ID" \
   | python3 -c 'import sys,json; es=json.load(sys.stdin)["entries"]; print(next(e for e in es if e["entryDate"]=="2026-04-13")["values"][0]["quantity"])')
-[ "$GOT_Q" = "7" ] || [ "$GOT_Q" = "7.0" ] && ok "same-day POST overwrites to 7" || fail "expected 7, got $GOT_Q"
+[ "$GOT_Q" = "52" ] || [ "$GOT_Q" = "52.0" ] && ok "same-day POST accumulates to 52" || fail "expected 52, got $GOT_Q"
 
 say "Reject unit change when entries exist"
 HTTP=$(curl -sS -b "$COOKIES" -o /dev/null -w "%{http_code}" -X PUT "$BASE/api/logs/$LOG_ID" \

@@ -73,8 +73,10 @@ insertSkipFills = Statement sql encoder D.noResult True
       ((\(_,_,c,_) -> c) >$< E.param (E.nonNullable dateArrayE)) <>
       ((\(_,_,_,d) -> d) >$< E.param (E.nonNullable E.int4))
 
--- | INSERT a new entry with a full values array. On conflict, replace the
---   entire arrays — the wire-format request is authoritative.
+-- | INSERT a new entry with a full values array. On conflict, accumulate
+--   quantities elementwise and append descriptions elementwise with a
+--   single space separator (empty-slot wins preserve the other side
+--   verbatim).
 upsertEntry
   :: Statement (EntryId, LogId, Day, Vector Double, Vector Text) Entry
 upsertEntry = Statement sql encoder (D.singleRow entryRow) True
@@ -83,8 +85,18 @@ upsertEntry = Statement sql encoder (D.singleRow entryRow) True
       "INSERT INTO entries (id, log_id, entry_date, quantities, descriptions) \
       \VALUES ($1, $2, $3, $4, $5) \
       \ON CONFLICT (log_id, entry_date) DO UPDATE SET \
-      \  quantities   = excluded.quantities, \
-      \  descriptions = excluded.descriptions, \
+      \  quantities   = ARRAY( \
+      \    SELECT q + r \
+      \    FROM unnest(entries.quantities, excluded.quantities) AS t(q, r) \
+      \  ), \
+      \  descriptions = ARRAY( \
+      \    SELECT CASE \
+      \             WHEN e = '' THEN x \
+      \             WHEN x = '' THEN e \
+      \             ELSE e || ' ' || x \
+      \           END \
+      \    FROM unnest(entries.descriptions, excluded.descriptions) AS t(e, x) \
+      \  ), \
       \  updated_at   = now() \
       \RETURNING id, log_id, entry_date, quantities, descriptions, created_at, updated_at"
     encoder =
