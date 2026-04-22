@@ -482,7 +482,7 @@ update msg model =
 
 
 view : Device -> Model -> Html Msg
-view _ model =
+view device model =
     case model.log of
         Nothing ->
             if model.loading then
@@ -533,7 +533,7 @@ view _ model =
                         ]
                         []
                     ]
-                , viewNewEntryForm log.metrics model.newValues model.submitting
+                , viewNewEntryForm device log.metrics model.newValues model.submitting
                 , case model.error of
                     Just e ->
                         div [ class "flash" ] [ text e ]
@@ -827,20 +827,26 @@ viewMetricStatsRow ms =
         ]
 
 
-viewNewEntryForm : List Metric -> List ValueDraft -> Bool -> Html Msg
-viewNewEntryForm metrics drafts submitting =
+viewNewEntryForm : Device -> List Metric -> List ValueDraft -> Bool -> Html Msg
+viewNewEntryForm device metrics drafts submitting =
     Html.form
         [ onSubmit AddEntry
         , style "width" "100%"
         , style "display" "block"
         ]
-        (List.indexedMap (viewValueDraftRow metrics) drafts
+        (List.indexedMap (viewValueDraftRow device metrics) drafts
             ++ [ button
                     [ type_ "submit"
                     , class "primary"
                     , disabled submitting
                     , style "flex" "0 0 auto"
                     , style "margin-top" "0.25rem"
+                    , case device of
+                        Phone ->
+                            style "width" "100%"
+
+                        Desktop ->
+                            style "width" "auto"
                     ]
                     [ text
                         (if submitting then
@@ -854,8 +860,8 @@ viewNewEntryForm metrics drafts submitting =
         )
 
 
-viewValueDraftRow : List Metric -> Int -> ValueDraft -> Html Msg
-viewValueDraftRow metrics i v =
+viewValueDraftRow : Device -> List Metric -> Int -> ValueDraft -> Html Msg
+viewValueDraftRow device metrics i v =
     let
         metric =
             metrics |> List.drop i |> List.head
@@ -870,46 +876,89 @@ viewValueDraftRow metrics i v =
         unitText =
             metric |> Maybe.map (.unit >> abbrevUnit) |> Maybe.withDefault ""
     in
-    div
-        [ class "entry-row"
-        , style "display" "flex"
-        , style "gap" "0.5rem"
-        , style "align-items" "center"
-        , style "margin-bottom" "0.25rem"
-        ]
-        ((if String.isEmpty labelText then
-            []
-
-          else
-            [ div
-                [ style "flex" "0 0 auto"
-                , style "min-width" "7rem"
-                , style "color" "#555"
+    case device of
+        Phone ->
+            div
+                [ class "entry-row-phone"
+                , style "display" "flex"
+                , style "flex-direction" "column"
+                , style "gap" "0.25rem"
+                , style "margin-bottom" "0.75rem"
                 ]
-                [ text labelText ]
-            ]
-         )
-            ++ [ input
-                    [ type_ "number"
-                    , step "any"
-                    , placeholder unitText
-                    , value v.qty
-                    , onInput (NewQtyChanged i)
-                    , style "width" "7rem"
-                    , style "flex" "0 0 auto"
-                    ]
+                ((if String.isEmpty labelText then
                     []
-               , input
-                    [ type_ "text"
-                    , placeholder "note (optional)"
-                    , value v.desc
-                    , onInput (NewDescChanged i)
-                    , style "flex" "1 1 auto"
-                    , style "min-width" "0"
+
+                  else
+                    [ div
+                        [ style "color" "#555"
+                        , style "font-size" "0.9rem"
+                        ]
+                        [ text labelText ]
                     ]
+                 )
+                    ++ [ input
+                            [ type_ "number"
+                            , step "any"
+                            , placeholder unitText
+                            , value v.qty
+                            , onInput (NewQtyChanged i)
+                            , style "width" "100%"
+                            , style "box-sizing" "border-box"
+                            ]
+                            []
+                       , input
+                            [ type_ "text"
+                            , placeholder "note (optional)"
+                            , value v.desc
+                            , onInput (NewDescChanged i)
+                            , style "width" "100%"
+                            , style "box-sizing" "border-box"
+                            ]
+                            []
+                       ]
+                )
+
+        Desktop ->
+            div
+                [ class "entry-row"
+                , style "display" "flex"
+                , style "gap" "0.5rem"
+                , style "align-items" "center"
+                , style "margin-bottom" "0.25rem"
+                ]
+                ((if String.isEmpty labelText then
                     []
-               ]
-        )
+
+                  else
+                    [ div
+                        [ style "flex" "0 0 auto"
+                        , style "min-width" "7rem"
+                        , style "color" "#555"
+                        ]
+                        [ text labelText ]
+                    ]
+                 )
+                    ++ [ input
+                            [ type_ "number"
+                            , step "any"
+                            , placeholder unitText
+                            , value v.qty
+                            , onInput (NewQtyChanged i)
+                            , style "width" "7rem"
+                            , style "flex" "0 0 auto"
+                            ]
+                            []
+                       , input
+                            [ type_ "text"
+                            , placeholder "note (optional)"
+                            , value v.desc
+                            , onInput (NewDescChanged i)
+                            , style "flex" "1 1 auto"
+                            , style "min-width" "0"
+                            ]
+                            []
+                       ]
+                )
 
 
 viewEntryRow : List Metric -> Maybe EditDraft -> Entry -> Html Msg
