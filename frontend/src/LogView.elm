@@ -542,7 +542,7 @@ view device model =
                         text ""
                 , div []
                     (List.map
-                        (viewEntryRow log.metrics model.editing)
+                        (viewEntryRow device log.metrics model.editing)
                         (List.reverse (List.sortBy (Date.toRataDie << .date) model.entries))
                     )
                 ]
@@ -961,34 +961,44 @@ viewValueDraftRow device metrics i v =
                 )
 
 
-viewEntryRow : List Metric -> Maybe EditDraft -> Entry -> Html Msg
-viewEntryRow metrics editing e =
+viewEntryRow : Device -> List Metric -> Maybe EditDraft -> Entry -> Html Msg
+viewEntryRow device metrics editing e =
     case editing of
         Just d ->
             if d.entryId == e.id then
-                viewEditRow metrics e d
+                viewEditRow device metrics e d
 
             else
-                viewReadRow metrics e
+                viewReadRow device metrics e
 
         Nothing ->
-            viewReadRow metrics e
+            viewReadRow device metrics e
 
 
-viewReadRow : List Metric -> Entry -> Html Msg
-viewReadRow metrics e =
+viewReadRow : Device -> List Metric -> Entry -> Html Msg
+viewReadRow device metrics e =
     let
         isSkipped =
             List.all (\v -> v.quantity == 0 && String.isEmpty v.description) e.values
 
-        renderValue i v =
+        unitAt i =
+            metrics
+                |> List.drop i
+                |> List.head
+                |> Maybe.map (.unit >> abbrevUnit)
+                |> Maybe.withDefault ""
+
+        metricNameAt i =
+            metrics
+                |> List.drop i
+                |> List.head
+                |> Maybe.map .name
+                |> Maybe.withDefault ""
+
+        renderValueInline i v =
             let
                 unit =
-                    metrics
-                        |> List.drop i
-                        |> List.head
-                        |> Maybe.map (.unit >> abbrevUnit)
-                        |> Maybe.withDefault ""
+                    unitAt i
             in
             String.fromFloat v.quantity
                 ++ (if String.isEmpty unit then
@@ -1004,25 +1014,89 @@ viewReadRow metrics e =
                         " — " ++ v.description
                    )
 
-        body =
+        renderValueLine i v =
+            let
+                name =
+                    metricNameAt i
+
+                prefix =
+                    if String.isEmpty name || List.length metrics <= 1 then
+                        ""
+
+                    else
+                        name ++ ": "
+
+                unit =
+                    unitAt i
+
+                body =
+                    String.fromFloat v.quantity
+                        ++ (if String.isEmpty unit then
+                                ""
+
+                            else
+                                " " ++ unit
+                           )
+                        ++ (if String.isEmpty v.description then
+                                ""
+
+                            else
+                                " — " ++ v.description
+                           )
+            in
+            div [ style "color" "#333" ] [ text (prefix ++ body) ]
+
+        desktopBody =
             if isSkipped then
                 "(skipped)"
 
             else
-                String.join " · " (List.indexedMap renderValue e.values)
+                String.join " · " (List.indexedMap renderValueInline e.values)
     in
-    div [ class "row" ]
-        [ div [ class "date" ] [ text (Date.toIsoString e.date) ]
-        , div [ class "desc" ] [ text body ]
-        , div [ class "ctrls" ]
-            [ button [ onClick (StartEdit e) ] [ text "Edit" ]
-            , button [ onClick (DeleteEntry e.id) ] [ text "Del" ]
-            ]
-        ]
+    case device of
+        Phone ->
+            div
+                [ class "row-phone"
+                , style "display" "flex"
+                , style "flex-direction" "column"
+                , style "gap" "0.25rem"
+                , style "padding" "0.6rem 0"
+                , style "border-bottom" "1px solid #eee"
+                ]
+                ([ div [ style "color" "#666", style "font-weight" "500" ]
+                    [ text (Date.toIsoString e.date) ]
+                 ]
+                    ++ (if isSkipped then
+                            [ div [ style "color" "#888" ] [ text "(skipped)" ] ]
+
+                        else
+                            List.indexedMap renderValueLine e.values
+                       )
+                    ++ [ div
+                            [ style "display" "flex"
+                            , style "gap" "0.5rem"
+                            , style "justify-content" "flex-end"
+                            , style "margin-top" "0.25rem"
+                            ]
+                            [ button [ onClick (StartEdit e) ] [ text "Edit" ]
+                            , button [ onClick (DeleteEntry e.id) ] [ text "Del" ]
+                            ]
+                       ]
+                )
+
+        Desktop ->
+            div [ class "row" ]
+                [ div [ class "date" ] [ text (Date.toIsoString e.date) ]
+                , div [ class "desc" ] [ text desktopBody ]
+                , div [ class "ctrls" ]
+                    [ button [ onClick (StartEdit e) ] [ text "Edit" ]
+                    , button [ onClick (DeleteEntry e.id) ] [ text "Del" ]
+                    ]
+                ]
 
 
-viewEditRow : List Metric -> Entry -> EditDraft -> Html Msg
-viewEditRow metrics e d =
+viewEditRow : Device -> List Metric -> Entry -> EditDraft -> Html Msg
+viewEditRow _ metrics e d =
     div [ class "row", style "flex-wrap" "wrap" ]
         [ div [ class "date" ] [ text (Date.toIsoString e.date) ]
         , div
