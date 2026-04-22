@@ -506,16 +506,17 @@ view model =
                 [ div
                     [ style "display" "flex"
                     , style "align-items" "baseline"
-                    , style "gap" "1rem"
+                    , style "gap" "1.5rem"
                     , style "flex-wrap" "wrap"
                     ]
-                    [ h1
+                    (h1
                         [ style "margin" "0"
                         , style "line-height" "1"
                         ]
                         [ text log.name ]
-                    , viewStats [ style "margin" "0" ] stats
-                    ]
+                        :: viewStatsCells stats
+                    )
+                , viewStatsTable stats
                 , viewStreakRow model.streakStats log.startDate log model.availableCollections
                 , hr
                     [ style "margin" "0"
@@ -554,7 +555,7 @@ viewStreakRow mss startDate log availableCollections =
             "—"
 
         intCell label n =
-            div []
+            div pillStyle
                 [ text
                     (label
                         ++ ": "
@@ -568,7 +569,7 @@ viewStreakRow mss startDate log availableCollections =
                 ]
 
         avgCell label ma =
-            div []
+            div pillStyle
                 [ text
                     (label
                         ++ ": "
@@ -583,14 +584,16 @@ viewStreakRow mss startDate log availableCollections =
                 ]
 
         sinceCell =
-            div [] [ text ("Since " ++ Date.format "MMMM d, y" startDate) ]
+            div pillStyle [ text ("Since " ++ Date.format "MMMM d, y" startDate) ]
 
         collectionCell =
             div
-                [ style "display" "flex"
-                , style "gap" "0.5rem"
-                , style "align-items" "baseline"
-                ]
+                (pillStyle
+                    ++ [ style "display" "flex"
+                       , style "gap" "0.5rem"
+                       , style "align-items" "baseline"
+                       ]
+                )
                 [ span [ style "color" "#555" ] [ text "Collection:" ]
                 , select
                     [ onInput CollectionSelected
@@ -609,20 +612,35 @@ viewStreakRow mss startDate log availableCollections =
                     )
                 ]
 
-        children =
+        leftCells =
             case mss of
                 Nothing ->
-                    [ sinceCell, collectionCell ]
+                    []
 
                 Just ss ->
                     [ intCell "Current streak" ss.current
                     , avgCell "Avg streak" ss.average
                     , intCell "Longest streak" ss.longest
-                    , sinceCell
-                    , collectionCell
                     ]
+
+        rightGroup =
+            div
+                [ style "display" "flex"
+                , style "gap" "1.5rem"
+                , style "align-items" "baseline"
+                , style "margin-left" "auto"
+                , style "flex-wrap" "wrap"
+                ]
+                [ sinceCell, collectionCell ]
     in
-    div [ class "stats", style "margin" "0" ] children
+    div
+        [ style "display" "flex"
+        , style "gap" "1.5rem"
+        , style "align-items" "baseline"
+        , style "flex-wrap" "wrap"
+        , style "margin" "0"
+        ]
+        (leftCells ++ [ rightGroup ])
 
 
 viewDescription : Maybe DescDraft -> Log -> Html Msg
@@ -696,20 +714,33 @@ viewDescription editing log =
                 ]
 
 
-viewStats : List (Html.Attribute msg) -> Stats -> Html msg
-viewStats extra s =
+pillStyle : List (Html.Attribute msg)
+pillStyle =
+    [ style "background" "#f5f5f5"
+    , style "padding" "0.3rem 0.6rem"
+    , style "border-radius" "4px"
+    , style "font-size" "0.95rem"
+    ]
+
+
+fmt : Float -> String
+fmt =
+    String.fromFloat
+
+
+fmt1 : Float -> String
+fmt1 a =
+    String.fromFloat (toFloat (round (a * 10)) / 10)
+
+
+viewStatsCells : Stats -> List (Html msg)
+viewStatsCells s =
     let
-        daysDiv =
-            div [] [ text ("Days: " ++ String.fromInt s.days) ]
+        daysCell =
+            div pillStyle [ text ("Days: " ++ String.fromInt s.days) ]
 
-        skippedDiv =
-            div [] [ text ("Skipped: " ++ String.fromInt s.skipped) ]
-
-        fmt n =
-            String.fromFloat n
-
-        fmt1 a =
-            String.fromFloat (toFloat (round (a * 10)) / 10)
+        skippedCell =
+            div pillStyle [ text ("Skipped: " ++ String.fromInt s.skipped) ]
 
         avgText ms =
             case ms.average of
@@ -721,36 +752,41 @@ viewStats extra s =
     in
     case s.perMetric of
         [ ms ] ->
-            -- Single-metric: Days, Skipped, Total, Average on one compact row.
-            div (class "stats" :: extra)
-                [ daysDiv
-                , skippedDiv
-                , div [] [ text ("Total: " ++ fmt ms.total ++ " " ++ abbrevUnit ms.unit) ]
-                , div [] [ text ("Average: " ++ avgText ms) ]
-                ]
+            [ daysCell
+            , skippedCell
+            , div pillStyle [ text ("Total: " ++ fmt ms.total ++ " " ++ abbrevUnit ms.unit) ]
+            , div pillStyle [ text ("Average: " ++ avgText ms) ]
+            ]
 
         _ ->
-            -- Multi-metric: Days/Skipped row, then a per-metric table.
-            div extra
-                [ div [ class "stats", style "margin" "0" ] [ daysDiv, skippedDiv ]
-                , if List.isEmpty s.perMetric then
-                    text ""
+            -- Multi-metric: Days/Skipped as pills; table renders separately in viewStatsTable.
+            [ daysCell, skippedCell ]
 
-                  else
-                    table
-                        [ style "border-collapse" "collapse"
-                        , style "margin" "0.5rem 0"
-                        , style "font-size" "0.95rem"
+
+viewStatsTable : Stats -> Html msg
+viewStatsTable s =
+    case s.perMetric of
+        [] ->
+            text ""
+
+        [ _ ] ->
+            -- Single-metric stats are already in the pill row above.
+            text ""
+
+        _ ->
+            table
+                [ style "border-collapse" "collapse"
+                , style "margin" "0"
+                , style "font-size" "0.95rem"
+                ]
+                [ thead []
+                    [ tr []
+                        [ metricTh "item"
+                        , metricTh "total"
+                        , metricTh "avg"
                         ]
-                        [ thead []
-                            [ tr []
-                                [ metricTh "item"
-                                , metricTh "total"
-                                , metricTh "avg"
-                                ]
-                            ]
-                        , tbody [] (List.map viewMetricStatsRow s.perMetric)
-                        ]
+                    ]
+                , tbody [] (List.map viewMetricStatsRow s.perMetric)
                 ]
 
 
