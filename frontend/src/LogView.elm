@@ -554,37 +554,35 @@ viewStreakRow mss startDate log availableCollections =
         dash =
             "—"
 
-        intCell label n =
-            div pillStyle
-                [ text
-                    (label
-                        ++ ": "
-                        ++ (if n <= 0 then
-                                dash
+        intStr n =
+            if n <= 0 then
+                dash
 
-                            else
-                                String.fromInt n
-                           )
-                    )
-                ]
+            else
+                String.fromInt n
 
-        avgCell label ma =
-            div pillStyle
-                [ text
-                    (label
-                        ++ ": "
-                        ++ (case ma of
-                                Just a ->
-                                    String.fromFloat (toFloat (round (a * 10)) / 10)
+        avgStr ma =
+            case ma of
+                Just a ->
+                    String.fromFloat (toFloat (round (a * 10)) / 10)
 
-                                Nothing ->
-                                    dash
-                           )
-                    )
-                ]
+                Nothing ->
+                    dash
 
         sinceCell =
             div pillStyle [ text ("Since " ++ Date.format "MMMM d, y" startDate) ]
+
+        streaksCell ss =
+            div pillStyle
+                [ text
+                    ("Streaks — current: "
+                        ++ intStr ss.current
+                        ++ " · avg: "
+                        ++ avgStr ss.average
+                        ++ " · longest: "
+                        ++ intStr ss.longest
+                    )
+                ]
 
         collectionCell =
             div
@@ -618,10 +616,7 @@ viewStreakRow mss startDate log availableCollections =
                     []
 
                 Just ss ->
-                    [ intCell "Current streak" ss.current
-                    , avgCell "Avg streak" ss.average
-                    , intCell "Longest streak" ss.longest
-                    ]
+                    [ streaksCell ss ]
 
         rightGroup =
             div
