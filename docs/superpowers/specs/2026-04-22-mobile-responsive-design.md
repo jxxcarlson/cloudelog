@@ -48,7 +48,7 @@ classify widthPx =
 }
 ```
 
-`Main.init` calls `Browser.Dom.getViewport` once at startup and stashes `classify (round viewport.scene.width)`. Until the task resolves, `device` defaults to `Desktop`; the flip to `Phone` happens on the next frame. If this flash proves visible in testing, the fallback is to read `window.innerWidth` in `index.html`'s init JS and pass it via Elm flags, eliminating the round trip.
+`Main.init` calls `Browser.Dom.getViewport` once at startup and stashes `classify (round vp.viewport.width)`. The CSS-pixel viewport width matches what `Browser.Events.onResize` subsequently reports, so the initial read and resize events live in the same coordinate space. Until the task resolves, `device` defaults to `Desktop`; the flip to `Phone` happens on the next frame. If this flash proves visible in testing, the fallback is to read `window.innerWidth` in `index.html`'s init JS and pass it via Elm flags, eliminating the round trip.
 
 `Main.subscriptions` adds `Browser.Events.onResize (\w _ -> ViewportResized w)`. `update` on `ViewportResized w` stores `classify w` in `model.device`. No other page's `Model` or `update` is involved.
 
