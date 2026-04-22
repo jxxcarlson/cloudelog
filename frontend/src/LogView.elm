@@ -6,7 +6,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
-import Types exposing (CollectionSummary, Entry, EntryValue, Log, Metric, StreakStats)
+import Types exposing (CollectionSummary, Device(..), Entry, EntryValue, Log, Metric, StreakStats)
 
 
 
@@ -481,8 +481,8 @@ update msg model =
             ( { model | error = Just (Api.apiErrorToString err) }, Cmd.none, NoOp )
 
 
-view : Model -> Html Msg
-view model =
+view : Device -> Model -> Html Msg
+view _ model =
     case model.log of
         Nothing ->
             if model.loading then

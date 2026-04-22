@@ -15,7 +15,9 @@ import LogView
 import Route exposing (Route(..))
 import Task
 import Time
-import Types exposing (User)
+import Browser.Dom
+import Browser.Events
+import Types exposing (Device(..), User, classify)
 import Url exposing (Url)
 
 
@@ -25,10 +27,15 @@ main =
         { init = init
         , update = update
         , view = view
-        , subscriptions = \_ -> Sub.none
+        , subscriptions = subscriptions
         , onUrlRequest = LinkClicked
         , onUrlChange = UrlChanged
         }
+
+
+subscriptions : Model -> Sub Msg
+subscriptions _ =
+    Browser.Events.onResize (\w _ -> ViewportResized w)
 
 
 type Page
@@ -48,6 +55,7 @@ type alias Model =
     , today : Maybe Date
     , flash : Maybe String
     , page : Page
+    , device : Device
     }
 
 
@@ -62,6 +70,8 @@ type Msg
     | CollectionMsg Collection.Msg
     | LogoutRequested
     | LogoutResponded (Result Http.Error ())
+    | GotInitialViewport Browser.Dom.Viewport
+    | ViewportResized Int
 
 
 init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
@@ -73,11 +83,13 @@ init _ url key =
       , today = Nothing
       , flash = Nothing
       , page = PageLoading
+      , device = Desktop
       }
     , Cmd.batch
         [ Task.map2 (\zone time -> Date.fromPosix zone time) Time.here Time.now
             |> Task.perform GotToday
         , Api.me MeResponded
+        , Task.perform GotInitialViewport Browser.Dom.getViewport
         ]
     )
 
@@ -227,6 +239,16 @@ update msg model =
             , Nav.pushUrl model.key "/login"
             )
 
+        GotInitialViewport vp ->
+            ( { model | device = classify (round vp.viewport.width) }
+            , Cmd.none
+            )
+
+        ViewportResized w ->
+            ( { model | device = classify w }
+            , Cmd.none
+            )
+
 
 
 -- | After async boot events (GotToday, MeResponded) land, decide if we can
@@ -324,7 +346,7 @@ view model =
                 Html.map LogListMsg (LogList.view subModel)
 
             PageLogView subModel ->
-                Html.map LogViewMsg (LogView.view subModel)
+                Html.map LogViewMsg (LogView.view model.device subModel)
 
             PageCollection subModel ->
                 Html.map CollectionMsg (Collection.view subModel)
