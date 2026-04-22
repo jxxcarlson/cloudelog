@@ -11,6 +11,8 @@ module Types exposing
     , CollectionMember
     , CollectionDetail
     , CombinedTotal
+    , Device(..)
+    , classify
     )
 
 import Date exposing (Date)
@@ -113,3 +115,17 @@ type alias CombinedTotal =
     , days : Int
     , contributors : Int
     }
+
+
+type Device
+    = Phone
+    | Desktop
+
+
+classify : Int -> Device
+classify widthPx =
+    if widthPx < 600 then
+        Phone
+
+    else
+        Desktop
