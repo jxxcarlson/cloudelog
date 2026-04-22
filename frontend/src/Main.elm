@@ -3,6 +3,8 @@ module Main exposing (main)
 import Api
 import Auth
 import Browser
+import Browser.Dom
+import Browser.Events
 import Browser.Navigation as Nav
 import Collection
 import Date exposing (Date)
@@ -15,8 +17,6 @@ import LogView
 import Route exposing (Route(..))
 import Task
 import Time
-import Browser.Dom
-import Browser.Events
 import Types exposing (Device(..), User, classify)
 import Url exposing (Url)
 
