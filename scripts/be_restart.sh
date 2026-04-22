@@ -13,6 +13,23 @@ unset DATABASE_URL JWT_SECRET JWT_EXPIRY_DAYS
 : "${DATABASE_URL:=postgres://localhost/cloudelog_dev?sslmode=disable}"
 : "${JWT_SECRET:=dev-secret-change-in-production-min-32-chars!!}"
 : "${JWT_EXPIRY_DAYS:=30}"
+
+# Production path: the droplet runs the backend under systemd from the
+# installed binary at /usr/local/bin/cloudelog-backend. A `stack build` +
+# `stack exec` here would only update the stack snapshot — systemd would
+# keep relaunching the old installed binary. Update the installed binary
+# and bounce the unit instead.
+SYSTEMD_UNIT=/etc/systemd/system/cloudelog-backend.service
+if [ -f "$SYSTEMD_UNIT" ] && command -v systemctl >/dev/null 2>&1; then
+  echo "=== systemd unit detected at $SYSTEMD_UNIT — production restart path ==="
+  echo "=== Installing backend binary to /usr/local/bin ==="
+  cd "$ROOT/backend" && stack install --local-bin-path /usr/local/bin
+  echo "=== Restarting cloudelog-backend via systemd ==="
+  systemctl restart cloudelog-backend
+  systemctl --no-pager status cloudelog-backend | head -n 15
+  exit 0
+fi
+
 BE_PORT="${CLOUDELOG_BE_PORT:-8081}"
 
 echo "=== Stopping backend on :$BE_PORT ==="
