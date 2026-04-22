@@ -298,7 +298,7 @@ viewValueDraftRow logName metrics logId i v =
                     logName
 
         unitText =
-            metric |> Maybe.map .unit |> Maybe.withDefault ""
+            metric |> Maybe.map (.unit >> abbrevUnit) |> Maybe.withDefault ""
     in
     div
         [ style "display" "flex"
@@ -474,13 +474,13 @@ viewCombinedTotals totals =
                 (List.map
                     (\t ->
                         div [ class "stats" ]
-                            [ div [] [ text (t.unit ++ " — Σ " ++ fmt t.total ++ " " ++ t.unit) ]
+                            [ div [] [ text (abbrevUnit t.unit ++ " — Total " ++ fmt t.total ++ " " ++ abbrevUnit t.unit) ]
                             , div []
                                 [ text
                                     ("avg "
                                         ++ (case t.average of
                                                 Just a ->
-                                                    fmt1 a ++ " " ++ t.unit ++ "/day"
+                                                    fmt1 a ++ " " ++ abbrevUnit t.unit ++ "/day"
 
                                                 Nothing ->
                                                     "—"
@@ -620,7 +620,7 @@ viewHistoryRow { logName, metrics, entry } =
                                 metrics
                                     |> List.drop i
                                     |> List.head
-                                    |> Maybe.map .unit
+                                    |> Maybe.map (.unit >> abbrevUnit)
                                     |> Maybe.withDefault ""
                         in
                         String.fromFloat v.quantity
@@ -658,3 +658,13 @@ fmt =
 fmt1 : Float -> String
 fmt1 a =
     String.fromFloat (toFloat (round (a * 10)) / 10)
+
+
+abbrevUnit : String -> String
+abbrevUnit unit =
+    case unit of
+        "minutes" ->
+            "min"
+
+        _ ->
+            unit

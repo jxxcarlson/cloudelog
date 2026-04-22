@@ -114,6 +114,16 @@ updateAt i f xs =
         xs
 
 
+abbrevUnit : String -> String
+abbrevUnit unit =
+    case unit of
+        "minutes" ->
+            "min"
+
+        _ ->
+            unit
+
+
 type alias ValueDraft =
     { qty : String
     , desc : String
@@ -704,7 +714,7 @@ viewStats extra s =
         avgText ms =
             case ms.average of
                 Just a ->
-                    fmt1 a ++ " " ++ ms.unit
+                    fmt1 a ++ " " ++ abbrevUnit ms.unit
 
                 Nothing ->
                     "—"
@@ -715,7 +725,7 @@ viewStats extra s =
             div (class "stats" :: extra)
                 [ daysDiv
                 , skippedDiv
-                , div [] [ text ("Total: " ++ fmt ms.total ++ " " ++ ms.unit) ]
+                , div [] [ text ("Total: " ++ fmt ms.total ++ " " ++ abbrevUnit ms.unit) ]
                 , div [] [ text ("Average: " ++ avgText ms) ]
                 ]
 
@@ -769,12 +779,12 @@ viewMetricStatsRow : MetricStats -> Html msg
 viewMetricStatsRow ms =
     let
         totalText =
-            String.fromFloat ms.total ++ " " ++ ms.unit
+            String.fromFloat ms.total ++ " " ++ abbrevUnit ms.unit
 
         avgText =
             case ms.average of
                 Just a ->
-                    String.fromFloat (toFloat (round (a * 10)) / 10) ++ " " ++ ms.unit
+                    String.fromFloat (toFloat (round (a * 10)) / 10) ++ " " ++ abbrevUnit ms.unit
 
                 Nothing ->
                     "—"
@@ -827,7 +837,7 @@ viewValueDraftRow metrics i v =
                 metric |> Maybe.map .name |> Maybe.withDefault ""
 
         unitText =
-            metric |> Maybe.map .unit |> Maybe.withDefault ""
+            metric |> Maybe.map (.unit >> abbrevUnit) |> Maybe.withDefault ""
     in
     div
         [ class "entry-row"
@@ -897,7 +907,7 @@ viewReadRow metrics e =
                     metrics
                         |> List.drop i
                         |> List.head
-                        |> Maybe.map .unit
+                        |> Maybe.map (.unit >> abbrevUnit)
                         |> Maybe.withDefault ""
             in
             String.fromFloat v.quantity
@@ -972,7 +982,7 @@ viewEditValueRow metrics i v =
                 metric |> Maybe.map .name |> Maybe.withDefault ""
 
         unitText =
-            metric |> Maybe.map .unit |> Maybe.withDefault ""
+            metric |> Maybe.map (.unit >> abbrevUnit) |> Maybe.withDefault ""
     in
     div
         [ style "display" "flex"
