@@ -21,6 +21,14 @@
       button { cursor: pointer; }
       .primary { background: #345; color: white; border: none; border-radius: 4px; }
       form { display: flex; gap: 0.5rem; align-items: baseline; margin: 1rem 0; }
+      @media (max-width: 600px) {
+        body { padding: 1rem; }
+        input, select, textarea { font-size: 16px; }
+        button { min-height: 44px; padding: 0.6rem 0.9rem; }
+        .stats { flex-wrap: wrap; }
+        .app-header { flex-wrap: wrap; gap: 0.5rem; }
+        .row { flex-wrap: wrap; }
+      }
     </style>
   </head>
   <body>

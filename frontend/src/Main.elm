@@ -339,7 +339,7 @@ viewHeader : Model -> Html Msg
 viewHeader model =
     case model.user of
         Just user ->
-            div [ style "display" "flex", style "justify-content" "space-between", style "align-items" "baseline" ]
+            div [ class "app-header", style "display" "flex", style "justify-content" "space-between", style "align-items" "baseline" ]
                 [ h2 [] [ a [ href "/" ] [ text "cloudelog" ] ]
                 , div []
                     [ text user.email
