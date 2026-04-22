@@ -1096,19 +1096,10 @@ viewReadRow device metrics e =
 
 
 viewEditRow : Device -> List Metric -> Entry -> EditDraft -> Html Msg
-viewEditRow _ metrics e d =
-    div [ class "row", style "flex-wrap" "wrap" ]
-        [ div [ class "date" ] [ text (Date.toIsoString e.date) ]
-        , div
-            [ style "display" "flex"
-            , style "flex-direction" "column"
-            , style "gap" "0.25rem"
-            , style "flex" "1 1 auto"
-            , style "min-width" "0"
-            ]
-            (List.indexedMap (viewEditValueRow metrics) d.values)
-        , div [ class "ctrls" ]
-            [ button [ onClick SaveEdit, disabled d.submitting ]
+viewEditRow device metrics e d =
+    let
+        saveButton =
+            button [ onClick SaveEdit, disabled d.submitting ]
                 [ text
                     (if d.submitting then
                         "Saving…"
@@ -1117,13 +1108,53 @@ viewEditRow _ metrics e d =
                         "Save"
                     )
                 ]
-            , button [ onClick CancelEdit, disabled d.submitting ] [ text "Cancel" ]
-            ]
-        ]
+
+        cancelButton =
+            button [ onClick CancelEdit, disabled d.submitting ] [ text "Cancel" ]
+    in
+    case device of
+        Phone ->
+            div
+                [ class "row-phone-edit"
+                , style "display" "flex"
+                , style "flex-direction" "column"
+                , style "gap" "0.5rem"
+                , style "padding" "0.6rem 0"
+                , style "border-bottom" "1px solid #eee"
+                ]
+                ([ div [ style "color" "#666", style "font-weight" "500" ]
+                    [ text (Date.toIsoString e.date) ]
+                 ]
+                    ++ List.indexedMap (viewEditValueRow Phone metrics) d.values
+                    ++ [ div
+                            [ style "display" "flex"
+                            , style "gap" "0.5rem"
+                            , style "margin-top" "0.25rem"
+                            ]
+                            [ div [ style "flex" "1 1 auto" ] [ saveButton ]
+                            , div [ style "flex" "1 1 auto" ] [ cancelButton ]
+                            ]
+                       ]
+                )
+
+        Desktop ->
+            div [ class "row", style "flex-wrap" "wrap" ]
+                [ div [ class "date" ] [ text (Date.toIsoString e.date) ]
+                , div
+                    [ style "display" "flex"
+                    , style "flex-direction" "column"
+                    , style "gap" "0.25rem"
+                    , style "flex" "1 1 auto"
+                    , style "min-width" "0"
+                    ]
+                    (List.indexedMap (viewEditValueRow Desktop metrics) d.values)
+                , div [ class "ctrls" ]
+                    [ saveButton, cancelButton ]
+                ]
 
 
-viewEditValueRow : List Metric -> Int -> ValueDraft -> Html Msg
-viewEditValueRow metrics i v =
+viewEditValueRow : Device -> List Metric -> Int -> ValueDraft -> Html Msg
+viewEditValueRow device metrics i v =
     let
         metric =
             metrics |> List.drop i |> List.head
@@ -1138,41 +1169,81 @@ viewEditValueRow metrics i v =
         unitText =
             metric |> Maybe.map (.unit >> abbrevUnit) |> Maybe.withDefault ""
     in
-    div
-        [ style "display" "flex"
-        , style "gap" "0.5rem"
-        , style "align-items" "center"
-        ]
-        ((if String.isEmpty labelText then
-            []
-
-          else
-            [ div
-                [ style "flex" "0 0 auto"
-                , style "min-width" "7rem"
-                , style "color" "#555"
-                , style "font-size" "0.85rem"
+    case device of
+        Phone ->
+            div
+                [ style "display" "flex"
+                , style "flex-direction" "column"
+                , style "gap" "0.25rem"
                 ]
-                [ text labelText ]
-            ]
-         )
-            ++ [ input
-                    [ type_ "number"
-                    , step "any"
-                    , placeholder unitText
-                    , value v.qty
-                    , onInput (EditQtyChanged i)
-                    , style "width" "6rem"
-                    , style "flex" "0 0 auto"
-                    ]
+                ((if String.isEmpty labelText then
                     []
-               , input
-                    [ value v.desc
-                    , onInput (EditDescChanged i)
-                    , placeholder "note (optional)"
-                    , style "flex" "1 1 auto"
-                    , style "min-width" "0"
+
+                  else
+                    [ div
+                        [ style "color" "#555"
+                        , style "font-size" "0.9rem"
+                        ]
+                        [ text labelText ]
                     ]
+                 )
+                    ++ [ input
+                            [ type_ "number"
+                            , step "any"
+                            , placeholder unitText
+                            , value v.qty
+                            , onInput (EditQtyChanged i)
+                            , style "width" "100%"
+                            , style "box-sizing" "border-box"
+                            ]
+                            []
+                       , input
+                            [ value v.desc
+                            , onInput (EditDescChanged i)
+                            , placeholder "note (optional)"
+                            , style "width" "100%"
+                            , style "box-sizing" "border-box"
+                            ]
+                            []
+                       ]
+                )
+
+        Desktop ->
+            div
+                [ style "display" "flex"
+                , style "gap" "0.5rem"
+                , style "align-items" "center"
+                ]
+                ((if String.isEmpty labelText then
                     []
-               ]
-        )
+
+                  else
+                    [ div
+                        [ style "flex" "0 0 auto"
+                        , style "min-width" "7rem"
+                        , style "color" "#555"
+                        , style "font-size" "0.85rem"
+                        ]
+                        [ text labelText ]
+                    ]
+                 )
+                    ++ [ input
+                            [ type_ "number"
+                            , step "any"
+                            , placeholder unitText
+                            , value v.qty
+                            , onInput (EditQtyChanged i)
+                            , style "width" "6rem"
+                            , style "flex" "0 0 auto"
+                            ]
+                            []
+                       , input
+                            [ value v.desc
+                            , onInput (EditDescChanged i)
+                            , placeholder "note (optional)"
+                            , style "flex" "1 1 auto"
+                            , style "min-width" "0"
+                            ]
+                            []
+                       ]
+                )
