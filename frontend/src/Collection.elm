@@ -474,7 +474,7 @@ viewCombinedTotals totals =
                 (List.map
                     (\t ->
                         div [ class "stats" ]
-                            [ div [] [ text (abbrevUnit t.unit ++ " — Total " ++ fmt t.total ++ " " ++ abbrevUnit t.unit) ]
+                            [ div [] [ text (fmtTotal t.unit t.total) ]
                             , div []
                                 [ text
                                     ("avg "
@@ -653,6 +653,34 @@ viewHistoryRow { logName, metrics, entry } =
 fmt : Float -> String
 fmt =
     String.fromFloat
+
+
+fmtTotal : String -> Float -> String
+fmtTotal unit total =
+    case unit of
+        "minutes" ->
+            if total >= 60 then
+                let
+                    totalMin =
+                        round total
+
+                    h =
+                        totalMin // 60
+
+                    m =
+                        modBy 60 totalMin
+                in
+                if m == 0 then
+                    "Total " ++ String.fromInt h ++ "h"
+
+                else
+                    "Total " ++ String.fromInt h ++ "h " ++ String.fromInt m ++ "m"
+
+            else
+                "Total " ++ fmt total ++ " min"
+
+        _ ->
+            "Total " ++ fmt total ++ " " ++ abbrevUnit unit
 
 
 fmt1 : Float -> String

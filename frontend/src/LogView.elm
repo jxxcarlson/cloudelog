@@ -728,6 +728,34 @@ fmt1 a =
     String.fromFloat (toFloat (round (a * 10)) / 10)
 
 
+fmtTotal : String -> Float -> String
+fmtTotal unit total =
+    case unit of
+        "minutes" ->
+            if total >= 60 then
+                let
+                    totalMin =
+                        round total
+
+                    h =
+                        totalMin // 60
+
+                    m =
+                        modBy 60 totalMin
+                in
+                if m == 0 then
+                    "Total " ++ String.fromInt h ++ "h"
+
+                else
+                    "Total " ++ String.fromInt h ++ "h " ++ String.fromInt m ++ "m"
+
+            else
+                "Total " ++ fmt total ++ " min"
+
+        _ ->
+            "Total " ++ fmt total ++ " " ++ abbrevUnit unit
+
+
 viewStatsCells : Stats -> List (Html msg)
 viewStatsCells s =
     let
@@ -749,7 +777,7 @@ viewStatsCells s =
         [ ms ] ->
             [ daysCell
             , skippedCell
-            , div pillStyle [ text ("Total: " ++ fmt ms.total ++ " " ++ abbrevUnit ms.unit) ]
+            , div pillStyle [ text (fmtTotal ms.unit ms.total) ]
             , div pillStyle [ text ("Average: " ++ avgText ms) ]
             ]
 
