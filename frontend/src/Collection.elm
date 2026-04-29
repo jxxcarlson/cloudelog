@@ -333,10 +333,9 @@ viewValueDraftRow logName metrics logId i v =
 computeCombinedTotals : List CollectionMember -> List CombinedTotal
 computeCombinedTotals members =
     let
-        -- All (unit, quantity, date) tuples from every (log, metric) pair
-        -- with quantity > 0.
-        contributions : List ( String, Float, Date )
-        contributions =
+        -- All (unit, quantity, date) tuples from every (log, metric) pair.
+        allContributions : List ( String, Float, Date )
+        allContributions =
             members
                 |> List.concatMap
                     (\m ->
@@ -349,7 +348,10 @@ computeCombinedTotals members =
                             )
                             m.entries
                     )
-                |> List.filter (\( _, q, _ ) -> q > 0)
+
+        contributions : List ( String, Float, Date )
+        contributions =
+            List.filter (\( _, q, _ ) -> q > 0) allContributions
 
         -- For each unit, count how many distinct (log, metric) pairs
         -- feed it across the collection.
@@ -359,10 +361,19 @@ computeCombinedTotals members =
                 |> List.concatMap (\m -> List.map .unit m.log.metrics)
                 |> groupCount
 
-        -- Group contributions by unit.
+        -- Group positive contributions by unit.
         byUnit : List ( String, List ( Float, Date ) )
         byUnit =
             groupBy (List.map (\( u, q, d ) -> ( u, ( q, d ) )) contributions)
+
+        -- Distinct zero-contribution dates per unit (any quantity == 0).
+        zeroDatesByUnit : List ( String, List Int )
+        zeroDatesByUnit =
+            allContributions
+                |> List.filter (\( _, q, _ ) -> q == 0)
+                |> List.map (\( u, _, d ) -> ( u, Date.toRataDie d ))
+                |> groupBy
+                |> List.map (\( u, ds ) -> ( u, dedup ds ))
     in
     List.filterMap
         (\( unit, pairs ) ->
@@ -377,11 +388,23 @@ computeCombinedTotals members =
                 total =
                     pairs |> List.map Tuple.first |> List.sum
 
-                distinctDays =
+                positiveDays =
                     pairs
                         |> List.map (Tuple.second >> Date.toRataDie)
                         |> dedup
-                        |> List.length
+
+                distinctDays =
+                    List.length positiveDays
+
+                zeroDays =
+                    zeroDatesByUnit
+                        |> List.filter (\( u, _ ) -> u == unit)
+                        |> List.head
+                        |> Maybe.map Tuple.second
+                        |> Maybe.withDefault []
+
+                skippedDays =
+                    List.length (List.filter (\d -> not (List.member d positiveDays)) zeroDays)
 
                 average =
                     if distinctDays > 0 then
@@ -396,6 +419,7 @@ computeCombinedTotals members =
                     , total = total
                     , average = average
                     , days = distinctDays
+                    , skipped = skippedDays
                     , contributors = contributors
                     }
 
@@ -474,7 +498,9 @@ viewCombinedTotals totals =
                 (List.map
                     (\t ->
                         div [ class "stats" ]
-                            [ div [] [ text (fmtTotal t.unit t.total) ]
+                            [ div [] [ text (String.fromInt t.days ++ " days") ]
+                            , div [] [ text (String.fromInt t.skipped ++ " skipped") ]
+                            , div [] [ text (fmtTotal t.unit t.total) ]
                             , div []
                                 [ text
                                     ("avg "
@@ -487,7 +513,6 @@ viewCombinedTotals totals =
                                            )
                                     )
                                 ]
-                            , div [] [ text (String.fromInt t.days ++ " days") ]
                             ]
                     )
                     totals

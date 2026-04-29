@@ -113,6 +113,7 @@ type alias CombinedTotal =
     , total : Float
     , average : Maybe Float
     , days : Int
+    , skipped : Int
     , contributors : Int
     }
 
