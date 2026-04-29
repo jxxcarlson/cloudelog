@@ -66,6 +66,14 @@ class SPAHandler(http.server.SimpleHTTPRequestHandler):
         self.path = "/index.html"
         return super().do_GET()
 
+    def end_headers(self):
+        # Dev server: never cache assets so freshly-rebuilt elm.js is picked up
+        # without manual hard-refreshes. Skipped for proxied /api responses,
+        # which write headers via send_header directly.
+        if not self.path.startswith("/api/"):
+            self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def do_GET(self):
         if self.path.startswith("/api/"):
             return self._proxy()
