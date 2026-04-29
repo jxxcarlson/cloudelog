@@ -33,7 +33,7 @@
   </head>
   <body>
     <div id="app"></div>
-    <script src="/elm.js"></script>
+    <script src="/elm.js?v=__ELM_VERSION__"></script>
     <script>
       Elm.Main.init({ node: document.getElementById("app") });
     </script>

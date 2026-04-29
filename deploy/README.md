@@ -93,9 +93,13 @@ If green, tear down the dev-mode backend before installing the systemd unit:
 ## Phase 5 — Production build of frontend
 
 ```
-cd ~/cloudelog/frontend
-elm make src/Main.elm --optimize --output=elm.js
+cd ~/cloudelog
+./scripts/fe-build.sh --optimize
 ```
+
+`fe-build.sh` runs `elm make ... --optimize`, then templates a content-hash version into `frontend/index.html` from `frontend/index.html.tpl` (the script tag becomes `<script src="/elm.js?v=<hash>">`). The hash changes whenever `elm.js` does, so browsers and Cloudflare bypass the cached bundle on every deploy without manual hard-refreshes.
+
+`frontend/index.html` is git-ignored — it's regenerated on every build. Edit `frontend/index.html.tpl` if you need to change the markup.
 
 nginx will serve `index.html`, `elm.js`, `favicon.svg` as static files. **`serve.py` is not used in production** — nginx both serves statics and reverse-proxies `/api/*`.
 

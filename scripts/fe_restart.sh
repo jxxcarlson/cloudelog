@@ -8,8 +8,8 @@ echo "=== Stopping frontend on :$FE_PORT ==="
 kill -9 $(lsof -ti :$FE_PORT) 2>/dev/null && echo "stopped" || echo "not running"
 
 echo "=== Building frontend ==="
+"$ROOT/scripts/fe-build.sh"
 cd "$ROOT/frontend"
-elm make src/Main.elm --output=elm.js
 
 echo "=== Starting frontend on :$FE_PORT ==="
 PORT="$FE_PORT" python3 serve.py > "$ROOT/frontend/run.log" 2>&1 &
