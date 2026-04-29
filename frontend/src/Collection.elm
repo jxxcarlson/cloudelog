@@ -224,7 +224,7 @@ view model =
         ( False, Just d ) ->
             let
                 totals =
-                    computeCombinedTotals d.members
+                    computeCombinedTotals model.today d.members
             in
             div []
                 [ h1 [] [ text d.collection.name ]
@@ -330,8 +330,8 @@ viewValueDraftRow logName metrics logId i v =
         ]
 
 
-computeCombinedTotals : List CollectionMember -> List CombinedTotal
-computeCombinedTotals members =
+computeCombinedTotals : Date -> List CollectionMember -> List CombinedTotal
+computeCombinedTotals today members =
     let
         -- All (unit, quantity, date) tuples from every (log, metric) pair.
         allContributions : List ( String, Float, Date )
@@ -406,6 +406,27 @@ computeCombinedTotals members =
                 skippedDays =
                     List.length (List.filter (\d -> not (List.member d positiveDays)) zeroDays)
 
+                streakRuns =
+                    consecutiveRuns (List.sort positiveDays)
+
+                longestStreak =
+                    streakRuns |> List.map .length |> List.maximum |> Maybe.withDefault 0
+
+                todayRD =
+                    Date.toRataDie today
+
+                currentStreak =
+                    case List.reverse streakRuns of
+                        last :: _ ->
+                            if last.endRD >= todayRD - 1 then
+                                last.length
+
+                            else
+                                0
+
+                        [] ->
+                            0
+
                 average =
                     if distinctDays > 0 then
                         Just (total / toFloat distinctDays)
@@ -420,6 +441,8 @@ computeCombinedTotals members =
                     , average = average
                     , days = distinctDays
                     , skipped = skippedDays
+                    , currentStreak = currentStreak
+                    , longestStreak = longestStreak
                     , contributors = contributors
                     }
 
@@ -427,6 +450,35 @@ computeCombinedTotals members =
                 Nothing
         )
         byUnit
+
+
+{-| Group sorted unique day-numbers into runs of consecutive integers.
+Each run records its end-day (Rata Die) and length so callers can both
+report the longest run and decide whether the most recent run is the
+"current" streak.
+-}
+consecutiveRuns : List Int -> List { endRD : Int, length : Int }
+consecutiveRuns sortedDays =
+    case sortedDays of
+        [] ->
+            []
+
+        first :: rest ->
+            let
+                step d acc =
+                    case acc of
+                        cur :: older ->
+                            if d == cur.endRD + 1 then
+                                { endRD = d, length = cur.length + 1 } :: older
+
+                            else
+                                { endRD = d, length = 1 } :: acc
+
+                        [] ->
+                            [ { endRD = d, length = 1 } ]
+            in
+            List.foldl step [ { endRD = first, length = 1 } ] rest
+                |> List.reverse
 
 
 groupBy : List ( comparable, b ) -> List ( comparable, List b )
@@ -513,6 +565,8 @@ viewCombinedTotals totals =
                                            )
                                     )
                                 ]
+                            , div [] [ text ("current streak: " ++ String.fromInt t.currentStreak) ]
+                            , div [] [ text ("longest streak: " ++ String.fromInt t.longestStreak) ]
                             ]
                     )
                     totals

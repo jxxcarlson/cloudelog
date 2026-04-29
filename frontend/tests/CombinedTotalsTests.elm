@@ -43,7 +43,7 @@ suite =
     describe "computeCombinedTotals"
         [ test "empty collection: no totals" <|
             \_ ->
-                Collection.computeCombinedTotals []
+                Collection.computeCombinedTotals (fromRataDie 1) []
                     |> Expect.equal []
         , test "single metric in collection: no combined total (contributors < 2)" <|
             \_ ->
@@ -54,7 +54,7 @@ suite =
                     es =
                         [ mkEntry "a" 1 [ 10 ] ]
                 in
-                Collection.computeCombinedTotals [ mkMember l es ]
+                Collection.computeCombinedTotals (fromRataDie 1) [ mkMember l es ]
                     |> Expect.equal []
         , test "two single-metric logs sharing a unit: one combined total" <|
             \_ ->
@@ -71,7 +71,7 @@ suite =
                     eb =
                         [ mkEntry "b" 1 [ 15 ] ]
                 in
-                case Collection.computeCombinedTotals [ mkMember la ea, mkMember lb eb ] of
+                case Collection.computeCombinedTotals (fromRataDie 1) [ mkMember la ea, mkMember lb eb ] of
                     [ t ] ->
                         Expect.all
                             [ \x -> Expect.equal "min" x.unit
@@ -105,7 +105,7 @@ suite =
                     ec =
                         [ mkEntry "c" 1 [ 30 ] ]
                 in
-                Collection.computeCombinedTotals
+                Collection.computeCombinedTotals (fromRataDie 1)
                     [ mkMember la ea, mkMember lb eb, mkMember lc ec ]
                     |> List.map .unit
                     |> Expect.equal [ "km" ]
@@ -131,7 +131,7 @@ suite =
                         [ mkEntry "c" 1 [ 45 ] ]
 
                     totals =
-                        Collection.computeCombinedTotals
+                        Collection.computeCombinedTotals (fromRataDie 1)
                             [ mkMember la ea, mkMember lb eb, mkMember lc ec ]
                 in
                 Expect.equalLists [ "km", "min" ] (List.sort (List.map .unit totals))

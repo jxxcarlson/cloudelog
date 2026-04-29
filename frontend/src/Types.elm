@@ -114,6 +114,8 @@ type alias CombinedTotal =
     , average : Maybe Float
     , days : Int
     , skipped : Int
+    , currentStreak : Int
+    , longestStreak : Int
     , contributors : Int
     }
 
