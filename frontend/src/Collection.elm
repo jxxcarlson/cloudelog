@@ -6,7 +6,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
-import Types exposing (Collection, CollectionDetail, CollectionMember, CombinedTotal, Entry, Log, Metric)
+import Types exposing (Collection, CollectionDetail, CollectionMember, CombinedTotal, Device(..), Entry, Log, Metric)
 
 
 type alias ValueDraft =
@@ -207,8 +207,8 @@ update msg model =
             )
 
 
-view : Model -> Html Msg
-view model =
+view : Device -> Model -> Html Msg
+view device model =
     case ( model.loading, model.detail ) of
         ( True, _ ) ->
             p [] [ text "Loading..." ]

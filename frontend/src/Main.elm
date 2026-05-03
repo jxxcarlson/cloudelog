@@ -349,7 +349,7 @@ view model =
                 Html.map LogViewMsg (LogView.view model.device subModel)
 
             PageCollection subModel ->
-                Html.map CollectionMsg (Collection.view subModel)
+                Html.map CollectionMsg (Collection.view model.device subModel)
 
             PageNotFound ->
                 p [] [ text "Not found." ]
