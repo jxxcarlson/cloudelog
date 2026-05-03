@@ -17,6 +17,13 @@ type alias LogDraft =
     { logId : String, values : List ValueDraft }
 
 
+type alias EditDraft =
+    { entryId : String
+    , values : List ValueDraft
+    , submitting : Bool
+    }
+
+
 type alias Model =
     { collectionId : String
     , today : Date
@@ -25,6 +32,7 @@ type alias Model =
     , error : Maybe String
     , drafts : List LogDraft
     , submitting : Bool
+    , editing : Maybe EditDraft
     }
 
 
@@ -51,6 +59,7 @@ init cid today =
       , error = Nothing
       , drafts = []
       , submitting = False
+      , editing = Nothing
       }
     , Api.getCollection cid DetailFetched
     )
