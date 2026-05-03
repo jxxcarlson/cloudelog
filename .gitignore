@@ -36,3 +36,6 @@ frontend/index.html
 
 # DB dumps
 *.sql.dump
+
+# Git worktrees
+.worktrees/
