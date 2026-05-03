@@ -893,7 +893,7 @@ viewHistoryEditRow device logName metrics d =
                 ]
 
         cancelButton =
-            button [ onClick CancelEdit, disabled d.submitting ] [ text "Cancel" ]
+            button [ onClick CancelEdit ] [ text "Cancel" ]
     in
     case device of
         Types.Phone ->
