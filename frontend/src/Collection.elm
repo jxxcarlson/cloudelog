@@ -263,7 +263,7 @@ update msg model =
                     ( model, Cmd.none, NoOp )
 
         CancelEdit ->
-            ( { model | editing = Nothing }, Cmd.none, NoOp )
+            ( { model | editing = Nothing, error = Nothing }, Cmd.none, NoOp )
 
         SaveEdit ->
             case model.editing of
@@ -958,7 +958,9 @@ viewHistoryEditValue device metrics i v =
         qtyInput =
             input
                 [ type_ "number"
+                , step "any"
                 , attribute "inputmode" "decimal"
+                , placeholder unitText
                 , value v.qty
                 , onInput (EditQtyChanged i)
                 , style "width" "5rem"
@@ -968,6 +970,7 @@ viewHistoryEditValue device metrics i v =
         descInput =
             input
                 [ type_ "text"
+                , placeholder "note (optional)"
                 , value v.desc
                 , onInput (EditDescChanged i)
                 , style "flex" "1 1 auto"
