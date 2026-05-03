@@ -263,7 +263,7 @@ update msg model =
                     ( model, Cmd.none, NoOp )
 
         CancelEdit ->
-            ( { model | editing = Nothing, error = Nothing }, Cmd.none, NoOp )
+            ( { model | editing = Nothing }, Cmd.none, NoOp )
 
         SaveEdit ->
             case model.editing of
