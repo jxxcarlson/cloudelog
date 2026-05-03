@@ -43,6 +43,12 @@ type Msg
     | DraftDescChanged String Int String
     | SubmitCombined
     | CombinedPosted (Result Http.Error CollectionDetail)
+    | StartEdit Entry
+    | EditQtyChanged Int String
+    | EditDescChanged Int String
+    | SaveEdit
+    | CancelEdit
+    | EditSaved (Result Http.Error Entry)
 
 
 type OutMsg
@@ -119,6 +125,7 @@ update msg model =
                 , loading = False
                 , error = Nothing
                 , drafts = emptyDraftsFor d.members
+                , editing = Nothing
               }
             , Cmd.none
             , NoOp
@@ -204,6 +211,7 @@ update msg model =
                 , drafts = emptyDraftsFor d.members
                 , submitting = False
                 , error = Nothing
+                , editing = Nothing
               }
             , Cmd.none
             , NoOp
@@ -211,6 +219,99 @@ update msg model =
 
         CombinedPosted (Err err) ->
             ( { model | submitting = False, error = Just (Api.apiErrorToString err) }
+            , Cmd.none
+            , NoOp
+            )
+
+        StartEdit e ->
+            ( { model
+                | editing =
+                    Just
+                        { entryId = e.id
+                        , values =
+                            List.map
+                                (\v -> { qty = String.fromFloat v.quantity, desc = v.description })
+                                e.values
+                        , submitting = False
+                        }
+                , error = Nothing
+              }
+            , Cmd.none
+            , NoOp
+            )
+
+        EditQtyChanged i s ->
+            case model.editing of
+                Just d ->
+                    ( { model | editing = Just { d | values = updateAt i (\v -> { v | qty = s }) d.values } }
+                    , Cmd.none
+                    , NoOp
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none, NoOp )
+
+        EditDescChanged i s ->
+            case model.editing of
+                Just d ->
+                    ( { model | editing = Just { d | values = updateAt i (\v -> { v | desc = s }) d.values } }
+                    , Cmd.none
+                    , NoOp
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none, NoOp )
+
+        CancelEdit ->
+            ( { model | editing = Nothing, error = Nothing }, Cmd.none, NoOp )
+
+        SaveEdit ->
+            case model.editing of
+                Just d ->
+                    let
+                        parseValue v =
+                            case String.toFloat (String.trim v.qty) of
+                                Just q ->
+                                    Just { quantity = q, description = v.desc }
+
+                                Nothing ->
+                                    if String.isEmpty (String.trim v.qty) then
+                                        Just { quantity = 0, description = v.desc }
+
+                                    else
+                                        Nothing
+
+                        parsed =
+                            List.map parseValue d.values
+                    in
+                    if List.any ((==) Nothing) parsed then
+                        ( { model | error = Just "every quantity must be a number." }, Cmd.none, NoOp )
+
+                    else
+                        let
+                            values =
+                                List.filterMap identity parsed
+                        in
+                        ( { model | editing = Just { d | submitting = True }, error = Nothing }
+                        , Api.updateEntry d.entryId { values = values } EditSaved
+                        , NoOp
+                        )
+
+                Nothing ->
+                    ( model, Cmd.none, NoOp )
+
+        EditSaved (Ok _) ->
+            ( model
+            , Api.getCollection model.collectionId DetailFetched
+            , NoOp
+            )
+
+        EditSaved (Err err) ->
+            ( { model
+                | editing =
+                    Maybe.map (\d -> { d | submitting = False }) model.editing
+                , error = Just (Api.apiErrorToString err)
+              }
             , Cmd.none
             , NoOp
             )
