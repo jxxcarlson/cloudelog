@@ -6,7 +6,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
-import Types exposing (Collection, CollectionDetail, CollectionMember, CombinedTotal, Entry, Log, Metric)
+import Types exposing (Collection, CollectionDetail, CollectionMember, CombinedTotal, Device(..), Entry, Log, Metric)
 
 
 type alias ValueDraft =
@@ -17,6 +17,13 @@ type alias LogDraft =
     { logId : String, values : List ValueDraft }
 
 
+type alias EditDraft =
+    { entryId : String
+    , values : List ValueDraft
+    , submitting : Bool
+    }
+
+
 type alias Model =
     { collectionId : String
     , today : Date
@@ -25,6 +32,7 @@ type alias Model =
     , error : Maybe String
     , drafts : List LogDraft
     , submitting : Bool
+    , editing : Maybe EditDraft
     }
 
 
@@ -35,6 +43,12 @@ type Msg
     | DraftDescChanged String Int String
     | SubmitCombined
     | CombinedPosted (Result Http.Error CollectionDetail)
+    | StartEdit Entry
+    | EditQtyChanged Int String
+    | EditDescChanged Int String
+    | SaveEdit
+    | CancelEdit
+    | EditSaved (Result Http.Error Entry)
 
 
 type OutMsg
@@ -51,6 +65,7 @@ init cid today =
       , error = Nothing
       , drafts = []
       , submitting = False
+      , editing = Nothing
       }
     , Api.getCollection cid DetailFetched
     )
@@ -110,6 +125,7 @@ update msg model =
                 , loading = False
                 , error = Nothing
                 , drafts = emptyDraftsFor d.members
+                , editing = Nothing
               }
             , Cmd.none
             , NoOp
@@ -195,6 +211,7 @@ update msg model =
                 , drafts = emptyDraftsFor d.members
                 , submitting = False
                 , error = Nothing
+                , editing = Nothing
               }
             , Cmd.none
             , NoOp
@@ -206,9 +223,102 @@ update msg model =
             , NoOp
             )
 
+        StartEdit e ->
+            ( { model
+                | editing =
+                    Just
+                        { entryId = e.id
+                        , values =
+                            List.map
+                                (\v -> { qty = String.fromFloat v.quantity, desc = v.description })
+                                e.values
+                        , submitting = False
+                        }
+                , error = Nothing
+              }
+            , Cmd.none
+            , NoOp
+            )
 
-view : Model -> Html Msg
-view model =
+        EditQtyChanged i s ->
+            case model.editing of
+                Just d ->
+                    ( { model | editing = Just { d | values = updateAt i (\v -> { v | qty = s }) d.values } }
+                    , Cmd.none
+                    , NoOp
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none, NoOp )
+
+        EditDescChanged i s ->
+            case model.editing of
+                Just d ->
+                    ( { model | editing = Just { d | values = updateAt i (\v -> { v | desc = s }) d.values } }
+                    , Cmd.none
+                    , NoOp
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none, NoOp )
+
+        CancelEdit ->
+            ( { model | editing = Nothing, error = Nothing }, Cmd.none, NoOp )
+
+        SaveEdit ->
+            case model.editing of
+                Just d ->
+                    let
+                        parseValue v =
+                            case String.toFloat (String.trim v.qty) of
+                                Just q ->
+                                    Just { quantity = q, description = v.desc }
+
+                                Nothing ->
+                                    if String.isEmpty (String.trim v.qty) then
+                                        Just { quantity = 0, description = v.desc }
+
+                                    else
+                                        Nothing
+
+                        parsed =
+                            List.map parseValue d.values
+                    in
+                    if List.any ((==) Nothing) parsed then
+                        ( { model | error = Just "every quantity must be a number." }, Cmd.none, NoOp )
+
+                    else
+                        let
+                            values =
+                                List.filterMap identity parsed
+                        in
+                        ( { model | editing = Just { d | submitting = True }, error = Nothing }
+                        , Api.updateEntry d.entryId { values = values } EditSaved
+                        , NoOp
+                        )
+
+                Nothing ->
+                    ( model, Cmd.none, NoOp )
+
+        EditSaved (Ok _) ->
+            ( model
+            , Api.getCollection model.collectionId DetailFetched
+            , NoOp
+            )
+
+        EditSaved (Err err) ->
+            ( { model
+                | editing =
+                    Maybe.map (\d -> { d | submitting = False }) model.editing
+                , error = Just (Api.apiErrorToString err)
+              }
+            , Cmd.none
+            , NoOp
+            )
+
+
+view : Device -> Model -> Html Msg
+view device model =
     case ( model.loading, model.detail ) of
         ( True, _ ) ->
             p [] [ text "Loading..." ]
@@ -242,7 +352,7 @@ view model =
                         text ""
                 , viewCombinedTotals totals
                 , viewPerLog d.members
-                , viewHistory d.members
+                , viewHistory device model.editing d.members
                 ]
 
 
@@ -625,8 +735,8 @@ type alias HistoryRow =
     }
 
 
-viewHistory : List CollectionMember -> Html Msg
-viewHistory members =
+viewHistory : Device -> Maybe EditDraft -> List CollectionMember -> Html Msg
+viewHistory device editing members =
     let
         rows : List HistoryRow
         rows =
@@ -669,20 +779,34 @@ viewHistory members =
     else
         div []
             [ h3 [] [ text "History" ]
-            , div [] (List.map viewHistoryDay groups)
+            , div [] (List.map (viewHistoryDay device editing) groups)
             ]
 
 
-viewHistoryDay : ( Date, List HistoryRow ) -> Html Msg
-viewHistoryDay ( date, rows ) =
+viewHistoryDay : Device -> Maybe EditDraft -> ( Date, List HistoryRow ) -> Html Msg
+viewHistoryDay device editing ( date, rows ) =
     div [ style "margin" "0.75rem 0" ]
         (h4 [] [ text (Date.toIsoString date) ]
-            :: List.map viewHistoryRow rows
+            :: List.map (viewHistoryRow device editing) rows
         )
 
 
-viewHistoryRow : HistoryRow -> Html Msg
-viewHistoryRow { logName, metrics, entry } =
+viewHistoryRow : Device -> Maybe EditDraft -> HistoryRow -> Html Msg
+viewHistoryRow device editing { logName, metrics, entry } =
+    case editing of
+        Just d ->
+            if d.entryId == entry.id then
+                viewHistoryEditRow device logName metrics d
+
+            else
+                viewHistoryDisplayRow device logName metrics entry
+
+        Nothing ->
+            viewHistoryDisplayRow device logName metrics entry
+
+
+viewHistoryDisplayRow : Device -> String -> List Metric -> Entry -> Html Msg
+viewHistoryDisplayRow device logName metrics entry =
     let
         isSkip =
             List.all (\v -> v.quantity == 0 && String.isEmpty v.description) entry.values
@@ -718,15 +842,187 @@ viewHistoryRow { logName, metrics, entry } =
                     )
                     entry.values
                     |> String.join " · "
+
+        editBtn =
+            button [ onClick (StartEdit entry) ] [ text "Edit" ]
     in
-    div
-        [ style "display" "flex"
-        , style "gap" "1rem"
-        , style "padding" "0.2rem 0"
-        ]
-        [ div [ style "min-width" "10rem", style "color" "#555" ] [ text logName ]
-        , div [] [ text rendered ]
-        ]
+    case device of
+        Types.Phone ->
+            div
+                [ style "display" "flex"
+                , style "flex-direction" "column"
+                , style "gap" "0.25rem"
+                , style "padding" "0.4rem 0"
+                , style "border-bottom" "1px solid #eee"
+                ]
+                [ div [ style "color" "#555", style "font-weight" "500" ] [ text logName ]
+                , div [] [ text rendered ]
+                , div
+                    [ style "display" "flex"
+                    , style "justify-content" "flex-end"
+                    , style "margin-top" "0.25rem"
+                    ]
+                    [ editBtn ]
+                ]
+
+        Types.Desktop ->
+            div
+                [ style "display" "flex"
+                , style "gap" "1rem"
+                , style "align-items" "baseline"
+                , style "padding" "0.2rem 0"
+                ]
+                [ div [ style "min-width" "10rem", style "color" "#555" ] [ text logName ]
+                , div [ style "flex" "1 1 auto" ] [ text rendered ]
+                , div [] [ editBtn ]
+                ]
+
+
+viewHistoryEditRow : Device -> String -> List Metric -> EditDraft -> Html Msg
+viewHistoryEditRow device logName metrics d =
+    let
+        saveButton =
+            button [ onClick SaveEdit, disabled d.submitting ]
+                [ text
+                    (if d.submitting then
+                        "Saving…"
+
+                     else
+                        "Save"
+                    )
+                ]
+
+        cancelButton =
+            button [ onClick CancelEdit ] [ text "Cancel" ]
+    in
+    case device of
+        Types.Phone ->
+            div
+                [ style "display" "flex"
+                , style "flex-direction" "column"
+                , style "gap" "0.5rem"
+                , style "padding" "0.6rem 0"
+                , style "border-bottom" "1px solid #eee"
+                ]
+                ([ div [ style "color" "#555", style "font-weight" "500" ] [ text logName ] ]
+                    ++ List.indexedMap (viewHistoryEditValue Types.Phone metrics) d.values
+                    ++ [ div
+                            [ style "display" "flex"
+                            , style "gap" "0.5rem"
+                            , style "margin-top" "0.25rem"
+                            ]
+                            [ div [ style "flex" "1 1 auto" ] [ saveButton ]
+                            , div [ style "flex" "1 1 auto" ] [ cancelButton ]
+                            ]
+                       ]
+                )
+
+        Types.Desktop ->
+            div
+                [ style "display" "flex"
+                , style "gap" "1rem"
+                , style "align-items" "baseline"
+                , style "padding" "0.4rem 0"
+                , style "flex-wrap" "wrap"
+                ]
+                [ div [ style "min-width" "10rem", style "color" "#555" ] [ text logName ]
+                , div
+                    [ style "display" "flex"
+                    , style "flex-direction" "column"
+                    , style "gap" "0.25rem"
+                    , style "flex" "1 1 auto"
+                    , style "min-width" "0"
+                    ]
+                    (List.indexedMap (viewHistoryEditValue Types.Desktop metrics) d.values)
+                , div [ style "display" "flex", style "gap" "0.5rem" ]
+                    [ saveButton, cancelButton ]
+                ]
+
+
+viewHistoryEditValue : Device -> List Metric -> Int -> ValueDraft -> Html Msg
+viewHistoryEditValue device metrics i v =
+    let
+        metric =
+            metrics |> List.drop i |> List.head
+
+        labelText =
+            if List.length metrics <= 1 then
+                ""
+
+            else
+                metric |> Maybe.map .name |> Maybe.withDefault ""
+
+        unitText =
+            metric |> Maybe.map (.unit >> abbrevUnit) |> Maybe.withDefault ""
+
+        qtyInput =
+            input
+                [ type_ "number"
+                , step "any"
+                , attribute "inputmode" "decimal"
+                , placeholder unitText
+                , value v.qty
+                , onInput (EditQtyChanged i)
+                , style "width" "5rem"
+                ]
+                []
+
+        descInput =
+            input
+                [ type_ "text"
+                , placeholder "note (optional)"
+                , value v.desc
+                , onInput (EditDescChanged i)
+                , style "flex" "1 1 auto"
+                , style "min-width" "0"
+                ]
+                []
+
+        unitLabel =
+            if String.isEmpty unitText then
+                text ""
+
+            else
+                span [ style "color" "#666" ] [ text unitText ]
+    in
+    case device of
+        Types.Phone ->
+            div
+                [ style "display" "flex"
+                , style "flex-direction" "column"
+                , style "gap" "0.25rem"
+                ]
+                ((if String.isEmpty labelText then
+                    []
+
+                  else
+                    [ div [ style "color" "#666", style "font-size" "0.85rem" ] [ text labelText ] ]
+                 )
+                    ++ [ div
+                            [ style "display" "flex"
+                            , style "gap" "0.5rem"
+                            , style "align-items" "baseline"
+                            ]
+                            [ qtyInput, unitLabel ]
+                       , descInput
+                       ]
+                )
+
+        Types.Desktop ->
+            div
+                [ style "display" "flex"
+                , style "gap" "0.5rem"
+                , style "align-items" "baseline"
+                , style "flex-wrap" "wrap"
+                ]
+                ((if String.isEmpty labelText then
+                    []
+
+                  else
+                    [ div [ style "min-width" "6rem", style "color" "#666" ] [ text labelText ] ]
+                 )
+                    ++ [ qtyInput, unitLabel, descInput ]
+                )
 
 
 fmt : Float -> String
