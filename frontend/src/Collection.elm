@@ -705,15 +705,23 @@ viewPerLogRow m =
                     m.entries
                 )
 
+        multiMetric =
+            List.length m.log.metrics > 1
+
+        metricStats : List String
+        metricStats =
+            List.indexedMap (perMetricStats multiMetric m.entries) m.log.metrics
+
+        segments =
+            ("Days: " ++ String.fromInt days)
+                :: metricStats
+                ++ [ "Skipped: " ++ String.fromInt skipped
+                   , "Current streak: " ++ String.fromInt m.streakStats.current
+                   , "Longest streak: " ++ String.fromInt m.streakStats.longest
+                   ]
+
         statsText =
-            "Days: "
-                ++ String.fromInt days
-                ++ " · Skipped: "
-                ++ String.fromInt skipped
-                ++ " · Current streak: "
-                ++ String.fromInt m.streakStats.current
-                ++ " · Longest streak: "
-                ++ String.fromInt m.streakStats.longest
+            String.join " · " segments
     in
     div
         [ class "row"
@@ -725,6 +733,40 @@ viewPerLogRow m =
             , span [ style "color" "#666" ] [ text (" — " ++ statsText) ]
             ]
         ]
+
+
+perMetricStats : Bool -> List Entry -> Int -> Metric -> String
+perMetricStats multiMetric entries i metric =
+    let
+        quantities =
+            List.filterMap (\e -> List.head (List.drop i e.values)) entries
+                |> List.map .quantity
+
+        total =
+            List.sum quantities
+
+        positiveDays =
+            List.length (List.filter (\q -> q > 0) quantities)
+
+        nameSuffix =
+            if multiMetric then
+                " " ++ metric.name
+
+            else
+                ""
+
+        totalStr =
+            "Total" ++ nameSuffix ++ ": " ++ fmtValue metric.unit total
+    in
+    if positiveDays > 0 then
+        totalStr
+            ++ " · Avg"
+            ++ nameSuffix
+            ++ ": "
+            ++ fmtAvg metric.unit (total / toFloat positiveDays)
+
+    else
+        totalStr
 
 
 type alias HistoryRow =
@@ -1032,12 +1074,17 @@ fmt =
 
 fmtTotal : String -> Float -> String
 fmtTotal unit total =
+    "Total " ++ fmtValue unit total
+
+
+fmtValue : String -> Float -> String
+fmtValue unit value =
     case unit of
         "minutes" ->
-            if total >= 60 then
+            if value >= 60 then
                 let
                     totalMin =
-                        round total
+                        round value
 
                     h =
                         totalMin // 60
@@ -1046,16 +1093,26 @@ fmtTotal unit total =
                         modBy 60 totalMin
                 in
                 if m == 0 then
-                    "Total " ++ String.fromInt h ++ "h"
+                    String.fromInt h ++ "h"
 
                 else
-                    "Total " ++ String.fromInt h ++ "h " ++ String.fromInt m ++ "m"
+                    String.fromInt h ++ "h " ++ String.fromInt m ++ "m"
 
             else
-                "Total " ++ fmt total ++ " min"
+                fmt value ++ " min"
 
         _ ->
-            "Total " ++ fmt total ++ " " ++ abbrevUnit unit
+            fmt value ++ " " ++ abbrevUnit unit
+
+
+fmtAvg : String -> Float -> String
+fmtAvg unit value =
+    case unit of
+        "minutes" ->
+            fmtValue unit value
+
+        _ ->
+            fmt1 value ++ " " ++ abbrevUnit unit
 
 
 fmt1 : Float -> String
