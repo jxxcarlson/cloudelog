@@ -1,6 +1,6 @@
 # cloudelog deployment runbook
 
-Deploy target: the existing DigitalOcean droplet `root@161.35.125.40`, which already runs greppit (and scripta). cloudelog shares Postgres, nginx, stack, and elm with those apps; it just gets its own database, backend port, systemd unit, and nginx server block.
+Deploy target: the existing DigitalOcean droplet `root@147.182.143.224`, which already runs greppit (and scripta). cloudelog shares Postgres, nginx, stack, and elm with those apps; it just gets its own database, backend port, systemd unit, and nginx server block.
 
 Domain: **cloudelog.app**, proxied through Cloudflare, TLS from Let's Encrypt (same pattern as greppit).
 
@@ -45,7 +45,7 @@ sudo -u postgres psql -c "ALTER USER cloudelog WITH PASSWORD 'PICK-A-STRONG-ONE'
 
 ## Phase 3 — Repo + `.env`
 
-On the droplet (`ssh root@161.35.125.40`):
+On the droplet (`ssh root@147.182.143.224`):
 
 ```
 cd ~ && git clone https://github.com/jxxcarlson/cloudelog.git
@@ -144,13 +144,13 @@ systemctl reload nginx
 
 In the Cloudflare dashboard, add an A record:
 
-- `cloudelog.app → 161.35.125.40`
+- `cloudelog.app → 147.182.143.224`
 - **Proxy status: DNS only** (grey cloud) *temporarily*, so Let's Encrypt's HTTP-01 challenge reaches the droplet directly.
 
 Give DNS a minute, then verify:
 
 ```
-dig +short cloudelog.app     # should return 161.35.125.40
+dig +short cloudelog.app     # should return 147.182.143.224
 ```
 
 ### Issue the cert
@@ -216,7 +216,7 @@ Open `https://cloudelog.app/` in a browser and sign up. Reload on a deep-link UR
 - **Pull dumps to your Mac:** set these in your *local* `.env`, then run `scripts/db-fetch-dump.sh`:
 
   ```
-  CLOUDELOG_PROD_HOST=root@161.35.125.40
+  CLOUDELOG_PROD_HOST=root@147.182.143.224
   CLOUDELOG_PROD_BACKUP_DIR=/root/cloudelog/backups
   ```
 

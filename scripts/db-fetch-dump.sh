@@ -4,7 +4,7 @@
 #
 # Host and remote directory come from .env. Set them before running, e.g.:
 #
-#   CLOUDELOG_PROD_HOST=root@161.35.125.40
+#   CLOUDELOG_PROD_HOST=root@147.182.143.224
 #   CLOUDELOG_PROD_BACKUP_DIR=/root/cloudelog/backups
 #
 # Usage:
